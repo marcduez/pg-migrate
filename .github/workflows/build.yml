@@ -15,9 +15,15 @@ jobs:
         with:
           node-version: "14.x"
           cache: "yarn"
+          registry-url: "https://npm.pkg.github.com"
+          scope: "@marcduez"
 
       - run: yarn install --frozen-lockfile
 
       - run: yarn lint
 
       - run: yarn test --ci
+
+      - run: yarn publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

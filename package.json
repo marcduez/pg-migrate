@@ -1,9 +1,9 @@
 {
-  "name": "pg-migrate",
-  "version": "1.0.0",
+  "name": "@marcduez/pg-migrate",
+  "version": "0.1.0",
   "main": "index.js",
   "repository": "git@github.com:marcduez/pg-migrate.git",
-  "author": "Marc Duez <marc@wealthsimple.com>",
+  "author": "Marc Duez <marcduez@gmail.com>",
   "license": "MIT",
   "devDependencies": {
     "@types/jest": "^27.0.3",
