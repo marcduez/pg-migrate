@@ -23,7 +23,7 @@ jobs:
           registry-url: "https://npm.pkg.github.com"
           scope: "@marcduez"
 
-      - name: Get the version
+      - name: Get version from release
         id: get_version
         run: echo ::set-output name=VERSION::${GITHUB_REF#refs/tags/}
 
@@ -37,6 +37,6 @@ jobs:
 
       - run: cp {package.json,README.md} dist
 
-      - run: yarn publish dist --new-version ${{ steps.get_version.outputs.VERSION }}
+      - run: yarn publish dist --new-version ${{ steps.get_version.outputs.VERSION }} --verbose
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
