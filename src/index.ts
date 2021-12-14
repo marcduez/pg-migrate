@@ -365,8 +365,10 @@ export const seedDatabase = async (
 export const truncateDatabaseTables = async (
   client: ClientBase,
   migrationTableName = "migrations",
+  seedFile = SEED_FILE,
   log = {
     debug: (message: any) => console.debug(message),
+    error: (message: any) => console.error(message),
   }
 ) => {
   log.debug("Truncating tables...")
@@ -375,5 +377,7 @@ export const truncateDatabaseTables = async (
     await client.query(`truncate ${tableNames.join(",")}`)
   }
   log.debug("Tables truncated")
-  await seedDatabase(client)
+  if (fs.existsSync(seedFile)) {
+    await seedDatabase(client, seedFile, log)
+  }
 }
