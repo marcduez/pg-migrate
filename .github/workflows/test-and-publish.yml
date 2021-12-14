@@ -9,7 +9,7 @@ on:
       - published
 
 jobs:
-  build:
+  test-and-publish:
     runs-on: ubuntu-latest
     if: github.event_name == 'release'
 
@@ -37,6 +37,7 @@ jobs:
 
       - run: cp {package.json,README.md} dist
 
-      - run: yarn publish dist --new-version ${{ steps.get_version.outputs.VERSION }} --verbose
+      - run: yarn publish dist --verbose
+        # run: yarn publish dist --new-version ${{ steps.get_version.outputs.VERSION }} --verbose
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
