@@ -1,6 +1,6 @@
 {
   "name": "@marcduez/pg-migrate",
-  "version": "0.6.0",
+  "version": "0.8.0",
   "main": "index.js",
   "repository": "git@github.com:marcduez/pg-migrate.git",
   "author": "Marc Duez <marcduez@gmail.com>",
