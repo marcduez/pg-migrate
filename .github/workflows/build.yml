@@ -24,6 +24,8 @@ jobs:
 
       - run: yarn test --ci
 
+      - run: yarn build
+
       - run: yarn publish
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
