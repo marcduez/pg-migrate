@@ -37,6 +37,8 @@ jobs:
 
       - run: cp {package.json,README.md} dist
 
+      - run: yarn version --new-version "${GITHUB_REF#refs/tags/}" --no-git-tag-version
+
       - run: yarn publish dist --verbose
         # run: yarn publish dist --new-version ${{ steps.get_version.outputs.VERSION }} --verbose
         env:
