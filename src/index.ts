@@ -6,8 +6,8 @@ import { ClientBase } from "pg"
 import readline from "readline"
 import SQL from "sql-template-strings"
 
-const SEED_FILE = path.join(__dirname, "..", "..", "dbSeed.sql")
-const MIGRATION_DIR = path.join(__dirname, "..", "..", "dbMigrations")
+const SEED_FILE = path.join(process.cwd(), "dbSeed.sql")
+const MIGRATION_DIR = path.join(process.cwd(), "dbMigrations")
 const MIGRATION_LOCK_ID = 9013200309969543n
 let tableNamesToTruncate: string[] | null = null
 
