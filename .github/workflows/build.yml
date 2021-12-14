@@ -26,6 +26,8 @@ jobs:
 
       - run: yarn build
 
-      - run: yarn publish
+      - run: cp {package.json,README.md} dist
+
+      - run: yarn publish dist
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
