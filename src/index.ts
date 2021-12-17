@@ -186,6 +186,22 @@ export const databaseNeedsMigration = async (
     : new Map<number, string>()
   const fileDigests = await getDigestsFromFiles(migrationDir)
 
+  // Check if any previously applied migrations no longer match files.
+  const unequalDigestEntry = [...databaseDigests.entries()].find(
+    ([key, value]) => fileDigests.get(key) !== value
+  )
+  if (unequalDigestEntry) {
+    const version = unequalDigestEntry[0]
+    const filename = `${version.toString().padStart(4, "0")}.sql`
+    const databaseDigest = unequalDigestEntry[1]
+    const fileDigest = fileDigests.get(unequalDigestEntry[0])
+    throw new Error(
+      fileDigests.has(unequalDigestEntry[0])
+        ? `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
+        : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`
+    )
+  }
+
   return [...fileDigests.keys()].some(key => !databaseDigests.has(key))
 }
 
