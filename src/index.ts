@@ -1,37 +1,27 @@
 /* eslint-disable no-console */
 import crypto from "crypto"
-import fs, { promises as fsPromises } from "fs"
+import fs from "fs"
 import path from "path"
 import { ClientBase } from "pg"
 import readline from "readline"
-import SQL from "sql-template-strings"
 
-const SEED_FILE = path.join(process.cwd(), "dbSeed.sql")
-const MIGRATION_DIR = path.join(process.cwd(), "dbMigrations")
+const SEED_FILE = path.join(process.cwd(), "seed.sql")
+const MIGRATION_DIR = path.join(process.cwd(), "migrations")
 const MIGRATION_LOCK_ID = 9013200309969543n
-let tableNamesToTruncate: string[] | null = null
+const MIGRATION_TABLE_NAME = "migrations"
 
 const migrationTableExists = async (client: ClientBase, tableName: string) =>
   (
-    await client.query<{ exists: boolean }>(SQL`
-    SELECT EXISTS (
-      SELECT
-      FROM information_schema.tables 
-      WHERE table_schema = 'public'
-      AND table_name = ${tableName}
-    )`)
+    await client.query<{ exists: boolean }>(
+      `select exists (
+        select
+        from information_schema.tables 
+        where table_schema = 'public'
+        and table_name = $1
+      )`,
+      [tableName]
+    )
   ).rows[0].exists
-
-const createMigrationTable = async (client: ClientBase, tableName: string) => {
-  await client.query(
-    SQL`
-    CREATE TABLE public.`.append(tableName).append(SQL` (
-      version SMALLINT NOT NULL PRIMARY KEY,
-      md5 CHAR(32) NOT NULL,
-      applied_at_utc TIMESTAMP NOT NULL DEFAULT (NOW() AT TIME ZONE 'UTC')
-    )`)
-  )
-}
 
 const getDigestsFromMigrationTable = async (
   client: ClientBase,
@@ -40,7 +30,7 @@ const getDigestsFromMigrationTable = async (
   new Map<number, string>(
     (
       await client.query<{ version: number; md5: string }>(
-        SQL`SELECT version, md5 FROM `.append(tableName)
+        `select version, md5 from ${tableName}`
       )
     ).rows.map(row => [row.version, row.md5])
   )
@@ -101,9 +91,8 @@ const insertMigration = async (
   md5: string
 ) => {
   await client.query(
-    SQL`INSERT INTO `
-      .append(tableName)
-      .append(SQL` (version, md5) VALUES (${version}, ${md5})`)
+    `insert into ${tableName} (version, md5) values ($1, $2)`,
+    [version, md5]
   )
 }
 
@@ -111,7 +100,8 @@ const acquireLock = async (client: ClientBase): Promise<void> => {
   if (
     !(
       await client.query<{ acquired: boolean }>(
-        SQL`select pg_try_advisory_lock(${MIGRATION_LOCK_ID}) as acquired`
+        `select pg_try_advisory_lock($1) as acquired`,
+        [MIGRATION_LOCK_ID]
       )
     ).rows[0].acquired
   ) {
@@ -123,7 +113,8 @@ const releaseLock = async (client: ClientBase): Promise<void> => {
   if (
     !(
       await client.query<{ released: boolean }>(
-        SQL`select pg_advisory_unlock(${MIGRATION_LOCK_ID}) as released`
+        `select pg_advisory_unlock($1) as released`,
+        [MIGRATION_LOCK_ID]
       )
     ).rows[0].released
   ) {
@@ -142,26 +133,6 @@ const getMaxVersionFromFiles = async (dir: string) =>
       )
   )
 
-const getTableNamesToTruncate = async (
-  client: ClientBase,
-  migrationTableName: string
-) => {
-  if (tableNamesToTruncate === null) {
-    tableNamesToTruncate = (
-      await client.query<{ name: string }>(
-        SQL`
-      SELECT
-        table_name AS name
-      FROM
-        information_schema.tables
-      WHERE table_schema = 'public'
-      AND table_name != ${migrationTableName}`
-      )
-    ).rows.map(row => row.name)
-  }
-  return tableNamesToTruncate
-}
-
 /**
  * Returns true if there are un-applied database migrations.
  * @param client - The database client to use.
@@ -172,7 +143,7 @@ const getTableNamesToTruncate = async (
 export const databaseNeedsMigration = async (
   client: ClientBase,
   migrationDir = MIGRATION_DIR,
-  migrationTableName = "migrations"
+  migrationTableName = MIGRATION_TABLE_NAME
 ) => {
   if (!fs.existsSync(migrationDir)) {
     throw new Error(`The directory ${migrationDir} does not exist`)
@@ -215,7 +186,7 @@ export const databaseNeedsMigration = async (
 export const migrateDatabase = async (
   client: ClientBase,
   migrationDir = MIGRATION_DIR,
-  migrationTableName = "migrations",
+  migrationTableName = MIGRATION_TABLE_NAME,
   log = {
     info: (message: any) => console.log(message),
     error: (message: any) => console.error(message),
@@ -226,7 +197,13 @@ export const migrateDatabase = async (
   }
 
   if (!(await migrationTableExists(client, migrationTableName))) {
-    await createMigrationTable(client, migrationTableName)
+    await client.query(
+      `create table public.${migrationTableName} (
+        version int not null primary key,
+        md5 char(32) not null,
+        applied_at_utc timestamp not null default (now() at time zone 'UTC')
+      )`
+    )
   }
 
   const databaseDigests = await getDigestsFromMigrationTable(
@@ -279,12 +256,12 @@ export const migrateDatabase = async (
       const inTransaction = await shouldCreateTransaction(filePath)
 
       if (inTransaction) {
-        await client.query("BEGIN TRANSACTION")
+        await client.query("begin transaction")
       } else {
         log.info(`Skipping transaction for ${filename}`)
       }
       try {
-        const sql = (await fsPromises.readFile(filePath, "utf8")).trim()
+        const sql = (await fs.promises.readFile(filePath, "utf8")).trim()
         if (!sql) {
           throw new Error(`File ${filename} is empty`)
         }
@@ -297,13 +274,13 @@ export const migrateDatabase = async (
         )
 
         if (inTransaction) {
-          await client.query("COMMIT")
+          await client.query("commit")
         }
         log.info(`Applied migration`)
       } catch (migrationError) {
         if (inTransaction) {
           try {
-            await client.query("ROLLBACK")
+            await client.query("rollback")
           } catch (rollbackError) {
             log.error(rollbackError)
           }
@@ -333,7 +310,7 @@ export const createDatabaseMigration = async (migrationDir = MIGRATION_DIR) => {
   const maxVersion = await getMaxVersionFromFiles(migrationDir)
   const filename = `${(maxVersion + 1).toString().padStart(4, "0")}.sql`
   const filePath = path.join(migrationDir, filename)
-  await fsPromises.writeFile(filePath, "")
+  await fs.promises.writeFile(filePath, "")
   return filePath
 }
 
@@ -352,48 +329,22 @@ export const seedDatabase = async (
   }
 ) => {
   log.debug("Inserting seed data...")
-  await client.query("BEGIN TRANSACTION")
+  await client.query("begin transaction")
   try {
-    const sql = (await fsPromises.readFile(seedFile, "utf8")).trim()
+    const sql = (await fs.promises.readFile(seedFile, "utf8")).trim()
     if (!sql) {
       throw new Error(`File ${seedFile} is empty`)
     }
     await client.query(sql)
 
-    await client.query("COMMIT")
+    await client.query("commit")
     log.debug("Seed data inserted")
   } catch (seedError) {
     try {
-      await client.query("ROLLBACK")
+      await client.query("rollback")
     } catch (rollbackError) {
       log.error(rollbackError)
     }
     throw seedError
-  }
-}
-
-/**
- * Truncates all tables except the migrations table.
- * @param client - The database client to use.
- * @param migrationTableName - The migration table name to use.
- * @param log - The logger to use.
- */
-export const truncateDatabaseTables = async (
-  client: ClientBase,
-  migrationTableName = "migrations",
-  seedFile = SEED_FILE,
-  log = {
-    debug: (message: any) => console.debug(message),
-    error: (message: any) => console.error(message),
-  }
-) => {
-  log.debug("Truncating tables...")
-  const tableNames = await getTableNamesToTruncate(client, migrationTableName)
-  if (tableNames.length) {
-    await client.query(`truncate ${tableNames.join(",")}`)
-  }
-  log.debug("Tables truncated")
-  if (fs.existsSync(seedFile)) {
-    await seedDatabase(client, seedFile, log)
   }
 }

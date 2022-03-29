@@ -28,7 +28,6 @@
     "test": "jest --runInBand"
   },
   "dependencies": {
-    "pg": "^8.7.1",
-    "sql-template-strings": "^2.2.2"
+    "pg": "^8.7.1"
   }
 }
