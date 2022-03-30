@@ -15,13 +15,13 @@
   },
   "rules": {
     "import/prefer-default-export": "off",
-    "no-plusplus": "off",
     "no-restricted-syntax": [
       "error",
       "ForInStatement",
       "LabeledStatement",
       "WithStatement"
     ],
-    "no-await-in-loop": "off"
+    "no-await-in-loop": "off",
+    "no-continue": "off"
   }
 }

@@ -5,10 +5,10 @@ import path from "path"
 import { ClientBase } from "pg"
 import readline from "readline"
 
-const SEED_FILE = path.join(process.cwd(), "seed.sql")
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
 const MIGRATION_LOCK_ID = 9013200309969543n
 const MIGRATION_TABLE_NAME = "migrations"
+const MIGRATION_FILE_PATTERN = /^\d{4}\.sql$/i
 
 const migrationTableExists = async (client: ClientBase, tableName: string) =>
   (
@@ -23,6 +23,15 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
     )
   ).rows[0].exists
 
+const createMigrationTable = async (client: ClientBase, tableName: string) =>
+  client.query(
+    `create table public.${tableName} (
+      version int not null primary key
+      , md5 char(32) not null
+      , applied_at_utc timestamp not null default (now() at time zone 'UTC')
+    )`
+  )
+
 const getDigestsFromMigrationTable = async (
   client: ClientBase,
   tableName: string
@@ -35,7 +44,7 @@ const getDigestsFromMigrationTable = async (
     ).rows.map(row => [row.version, row.md5])
   )
 
-const getFileDigest = async (filePath: string) => {
+const getDigestFromFile = async (filePath: string) => {
   const hash = crypto.createHash("md5").setEncoding("hex")
   const readStream = fs.createReadStream(filePath)
   return new Promise<string>((resolve, reject) => {
@@ -49,22 +58,25 @@ const getFileDigest = async (filePath: string) => {
   })
 }
 
-const getDigestsFromFiles = async (dir: string) => {
-  const filenames = (await fs.promises.readdir(dir)).filter(filename =>
-    /^\d{4}\.sql$/i.test(filename)
-  )
-
+const getDigestsFromFiles = async (
+  dir: string,
+  log: { debug: (message: any) => void }
+) => {
+  const filenames = await fs.promises.readdir(dir)
   const map = new Map<number, string>()
   for (const filename of filenames) {
-    map.set(
-      parseInt(filename.slice(0, 4), 10),
-      await getFileDigest(path.join(dir, filename))
-    )
+    if (!MIGRATION_FILE_PATTERN.test(filename)) {
+      log.debug(`Skipping non-migration file: ${filename}`)
+      continue
+    }
+    const version = parseInt(filename.slice(0, 4), 10)
+    const digest = await getDigestFromFile(path.join(dir, filename))
+    map.set(version, digest)
   }
   return map
 }
 
-const shouldCreateTransaction = async (filePath: string) => {
+const shouldCreateTransactionForFile = async (filePath: string) => {
   const readStream = fs.createReadStream(filePath)
   try {
     const lineReader = readline.createInterface({ input: readStream })
@@ -143,31 +155,35 @@ const getMaxVersionFromFiles = async (dir: string) =>
 export const databaseNeedsMigration = async (
   client: ClientBase,
   migrationDir = MIGRATION_DIR,
-  migrationTableName = MIGRATION_TABLE_NAME
+  migrationTableName = MIGRATION_TABLE_NAME,
+  log = {
+    debug: (message: any) => console.debug(message),
+  }
 ) => {
   if (!fs.existsSync(migrationDir)) {
     throw new Error(`The directory ${migrationDir} does not exist`)
   }
 
-  const databaseDigests = (await migrationTableExists(
+  if (!(await migrationTableExists(client, migrationTableName))) {
+    return true
+  }
+
+  const databaseDigests = await getDigestsFromMigrationTable(
     client,
     migrationTableName
-  ))
-    ? await getDigestsFromMigrationTable(client, migrationTableName)
-    : new Map<number, string>()
-  const fileDigests = await getDigestsFromFiles(migrationDir)
+  )
+  const fileDigests = await getDigestsFromFiles(migrationDir, log)
 
   // Check if any previously applied migrations no longer match files.
   const unequalDigestEntry = [...databaseDigests.entries()].find(
     ([key, value]) => fileDigests.get(key) !== value
   )
   if (unequalDigestEntry) {
-    const version = unequalDigestEntry[0]
+    const [version, databaseDigest] = unequalDigestEntry
     const filename = `${version.toString().padStart(4, "0")}.sql`
-    const databaseDigest = unequalDigestEntry[1]
-    const fileDigest = fileDigests.get(unequalDigestEntry[0])
+    const fileDigest = fileDigests.get(version)
     throw new Error(
-      fileDigests.has(unequalDigestEntry[0])
+      fileDigest
         ? `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
         : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`
     )
@@ -188,6 +204,7 @@ export const migrateDatabase = async (
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
   log = {
+    debug: (message: any) => console.debug(message),
     info: (message: any) => console.log(message),
     error: (message: any) => console.error(message),
   }
@@ -197,20 +214,14 @@ export const migrateDatabase = async (
   }
 
   if (!(await migrationTableExists(client, migrationTableName))) {
-    await client.query(
-      `create table public.${migrationTableName} (
-        version int not null primary key,
-        md5 char(32) not null,
-        applied_at_utc timestamp not null default (now() at time zone 'UTC')
-      )`
-    )
+    await createMigrationTable(client, migrationTableName)
   }
 
   const databaseDigests = await getDigestsFromMigrationTable(
     client,
     migrationTableName
   )
-  const fileDigests = await getDigestsFromFiles(migrationDir)
+  const fileDigests = await getDigestsFromFiles(migrationDir, log)
 
   const missingFileVersion = [...databaseDigests.keys()].find(
     key => !fileDigests.has(key)
@@ -253,7 +264,7 @@ export const migrateDatabase = async (
       log.info(`Applying migration ${filename}...`)
 
       const filePath = path.join(migrationDir, filename)
-      const inTransaction = await shouldCreateTransaction(filePath)
+      const inTransaction = await shouldCreateTransactionForFile(filePath)
 
       if (inTransaction) {
         await client.query("begin transaction")
@@ -310,41 +321,6 @@ export const createDatabaseMigration = async (migrationDir = MIGRATION_DIR) => {
   const maxVersion = await getMaxVersionFromFiles(migrationDir)
   const filename = `${(maxVersion + 1).toString().padStart(4, "0")}.sql`
   const filePath = path.join(migrationDir, filename)
-  await fs.promises.writeFile(filePath, "")
+  await fs.promises.writeFile(filePath, "", "utf8")
   return filePath
-}
-
-/**
- * Seeds the database with the commands in a SQL file.
- * @param client - The database client to use.
- * @param seedFile - The path to the seed file.
- * @param log - The logger to use.
- */
-export const seedDatabase = async (
-  client: ClientBase,
-  seedFile = SEED_FILE,
-  log = {
-    debug: (message: any) => console.debug(message),
-    error: (message: any) => console.error(message),
-  }
-) => {
-  log.debug("Inserting seed data...")
-  await client.query("begin transaction")
-  try {
-    const sql = (await fs.promises.readFile(seedFile, "utf8")).trim()
-    if (!sql) {
-      throw new Error(`File ${seedFile} is empty`)
-    }
-    await client.query(sql)
-
-    await client.query("commit")
-    log.debug("Seed data inserted")
-  } catch (seedError) {
-    try {
-      await client.query("rollback")
-    } catch (rollbackError) {
-      log.error(rollbackError)
-    }
-    throw seedError
-  }
 }

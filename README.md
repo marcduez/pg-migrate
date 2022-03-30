@@ -23,10 +23,10 @@ import { createDatabaseMigration } from "@marcduez/pg-migrate"
 })()
 ```
 
-### Migrating and seeding the database
+### Migrating the database
 
 ```typescript
-import { createDatabaseMigration, seedDatabase } from "@marcduez/pg-migrate"
+import { createDatabaseMigration } from "@marcduez/pg-migrate"
 import { Client } from "pg"
 
 // Your migrate-database script.
@@ -37,7 +37,6 @@ import { Client } from "pg"
   await client.connect()
   try {
     await migrateDatabase(client)
-    await seedDatabase(client)
   } finally {
     await client.end()
   }
@@ -67,18 +66,3 @@ import { Client } from "pg"
   // Do stuff assuming database is fully migrated.
 })()
 ```
-
-## Setting Up Local Environment
-
-Even when using `yarn` as package manager, do this login dance with `npm`:
-
-```sh
-npm login --scope=@marcduez --registry=https://npm.pkg.github.com
-> Username: [your Github username]
-> Email: [your Github public email address]
-> Password: [a generated personal access token with scopes read:packages and repo]
-```
-
-See [this page](https://docs.github.com/en/packages/working-with-a-github-packages-registry/working-with-the-npm-registry) for more details on using the Github NPM registry.
-
-To generate a personal access token, go [here](https://github.com/settings/tokens).
