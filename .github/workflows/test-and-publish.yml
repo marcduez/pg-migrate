@@ -37,5 +37,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          tag_name: v${{ steps.npm_publish.outputs.version }}
-          release_name: v${{ steps.npm_publish.outputs.version }}
+          tag_name: ${{ steps.npm_publish.outputs.version }}
+          release_name: ${{ steps.npm_publish.outputs.version }}
