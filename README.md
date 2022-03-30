@@ -5,7 +5,9 @@ PostgreSQL database migrations.
 ## Installation
 
 ```sh
-npm install @marcduez/pg-migrate
+$ npm install @marcduez/pg-migrate
+
+$ yarn add @marcduez/pg-migrate
 ```
 
 ## General Usage
