@@ -217,31 +217,31 @@ export const migrateDatabase = async (
     throw new Error(`The directory ${migrationDir} does not exist`)
   }
 
-  if (!(await migrationTableExists(client, migrationTableName))) {
-    await createMigrationTable(client, migrationTableName)
-  }
-
-  const digestsFromDatabase = await getDigestsFromDatabase(
-    client,
-    migrationTableName
-  )
-  const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
-
-  throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
-
-  const versionsToMigrate = [...digestsFromFiles.keys()]
-    .filter(key => !digestsFromDatabase.has(key))
-    .sort()
-
-  log.info(
-    `There are ${versionsToMigrate.length} database migration(s) to apply`
-  )
-  if (!versionsToMigrate.length) {
-    return
-  }
-
   await acquireLock(client)
   try {
+    if (!(await migrationTableExists(client, migrationTableName))) {
+      await createMigrationTable(client, migrationTableName)
+    }
+
+    const digestsFromDatabase = await getDigestsFromDatabase(
+      client,
+      migrationTableName
+    )
+    const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
+
+    throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
+
+    const versionsToMigrate = [...digestsFromFiles.keys()]
+      .filter(key => !digestsFromDatabase.has(key))
+      .sort()
+
+    log.info(
+      `There are ${versionsToMigrate.length} database migration(s) to apply`
+    )
+    if (!versionsToMigrate.length) {
+      return
+    }
+
     for (const version of versionsToMigrate) {
       const filename = `${version.toString().padStart(4, "0")}.sql`
       log.info(`Applying migration ${filename}...`)
