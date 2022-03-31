@@ -180,16 +180,20 @@ describe("migrateDatabase()", () => {
     })
 
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [{ exists: false }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ released: true }] })
 
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(BigInt)]],
       [expect.any(String), ["migrations"]],
       [expect.stringMatching(/^create\stable\s.*/)],
       [expect.any(String)],
+      [expect.any(String), [expect.any(BigInt)]],
     ])
   })
 
@@ -201,14 +205,18 @@ describe("migrateDatabase()", () => {
     })
 
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [{ exists: true }] })
       .mockResolvedValueOnce({ rows: [] })
+      .mockResolvedValueOnce({ rows: [{ released: true }] })
 
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(BigInt)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
+      [expect.any(String), [expect.any(BigInt)]],
     ])
   })
 
@@ -217,18 +225,22 @@ describe("migrateDatabase()", () => {
       [path.join(process.cwd(), "migrations")]: {},
     })
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [{ exists: true }] })
       .mockResolvedValueOnce({
         rows: [{ version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" }],
       })
+      .mockResolvedValueOnce({ rows: [{ released: true }] })
 
     await expect(migrateDatabase(new Client())).rejects.toThrow(
       "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files"
     )
 
     expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(BigInt)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
+      [expect.any(String), [expect.any(BigInt)]],
     ])
   })
 
@@ -240,6 +252,7 @@ describe("migrateDatabase()", () => {
       },
     })
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [{ exists: true }] })
       .mockResolvedValueOnce({
         rows: [
@@ -247,14 +260,17 @@ describe("migrateDatabase()", () => {
           { version: 2, md5: "99836b0f4ca50ed7ed998c0141a334e3" },
         ],
       })
+      .mockResolvedValueOnce({ rows: [{ released: true }] })
 
     await expect(migrateDatabase(new Client())).rejects.toThrow(
       "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database"
     )
 
     expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(BigInt)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
+      [expect.any(String), [expect.any(BigInt)]],
     ])
   })
 
@@ -265,9 +281,9 @@ describe("migrateDatabase()", () => {
       },
     })
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [{ exists: true }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
@@ -277,9 +293,9 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(BigInt)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt)]],
       ["begin transaction"],
       ["migration1"],
       [
@@ -300,9 +316,9 @@ describe("migrateDatabase()", () => {
       },
     })
     mockQuery
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [{ exists: true }] })
       .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [] })
       .mockResolvedValueOnce({ rows: [{ released: true }] })
@@ -310,9 +326,9 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(BigInt)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt)]],
       [migration],
       [
         expect.stringMatching(/^insert\sinto\s.*/),
