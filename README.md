@@ -1,5 +1,7 @@
 # pg-migrate
 
+<span class="badge-npmversion"><a href="https://npmjs.org/package/@marcduez/pg-migrate" title="View this project on NPM"><img src="https://img.shields.io/npm/v/@marcduez/pg-migrate.svg" alt="NPM version" /></a></span>
+
 PostgreSQL database migrations.
 
 ## Installation
