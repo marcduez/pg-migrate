@@ -32,10 +32,7 @@ const createMigrationTable = async (client: ClientBase, tableName: string) =>
     )`
   )
 
-const getDigestsFromMigrationTable = async (
-  client: ClientBase,
-  tableName: string
-) =>
+const getDigestsFromDatabase = async (client: ClientBase, tableName: string) =>
   new Map<number, string>(
     (
       await client.query<{ version: number; md5: string }>(
@@ -145,6 +142,26 @@ const getMaxVersionFromFiles = async (dir: string) =>
       )
   )
 
+const throwIfDigestsDiffer = (
+  digestsFromDatabase: Map<number, string>,
+  digestsFromFiles: Map<number, string>
+) => {
+  // Check if any previously applied migrations no longer match files.
+  const unequalDigestEntry = [...digestsFromDatabase.entries()].find(
+    ([key, value]) => digestsFromFiles.get(key) !== value
+  )
+  if (unequalDigestEntry) {
+    const [version, databaseDigest] = unequalDigestEntry
+    const filename = `${version.toString().padStart(4, "0")}.sql`
+    const fileDigest = digestsFromFiles.get(version)
+    throw new Error(
+      fileDigest
+        ? `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
+        : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`
+    )
+  }
+}
+
 /**
  * Returns true if there are un-applied database migrations.
  * @param client - The database client to use.
@@ -168,28 +185,15 @@ export const databaseNeedsMigration = async (
     return true
   }
 
-  const databaseDigests = await getDigestsFromMigrationTable(
+  const digestsFromDatabase = await getDigestsFromDatabase(
     client,
     migrationTableName
   )
-  const fileDigests = await getDigestsFromFiles(migrationDir, log)
+  const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
 
-  // Check if any previously applied migrations no longer match files.
-  const unequalDigestEntry = [...databaseDigests.entries()].find(
-    ([key, value]) => fileDigests.get(key) !== value
-  )
-  if (unequalDigestEntry) {
-    const [version, databaseDigest] = unequalDigestEntry
-    const filename = `${version.toString().padStart(4, "0")}.sql`
-    const fileDigest = fileDigests.get(version)
-    throw new Error(
-      fileDigest
-        ? `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
-        : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`
-    )
-  }
+  throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
 
-  return [...fileDigests.keys()].some(key => !databaseDigests.has(key))
+  return [...digestsFromFiles.keys()].some(key => !digestsFromDatabase.has(key))
 }
 
 /**
@@ -217,37 +221,16 @@ export const migrateDatabase = async (
     await createMigrationTable(client, migrationTableName)
   }
 
-  const databaseDigests = await getDigestsFromMigrationTable(
+  const digestsFromDatabase = await getDigestsFromDatabase(
     client,
     migrationTableName
   )
-  const fileDigests = await getDigestsFromFiles(migrationDir, log)
+  const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
 
-  const missingFileVersion = [...databaseDigests.keys()].find(
-    key => !fileDigests.has(key)
-  )
-  if (missingFileVersion) {
-    throw new Error(
-      `Migration ${missingFileVersion} is in database, but not in files`
-    )
-  }
+  throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
 
-  const unequalDigestEntry = [...fileDigests.entries()].find(
-    ([key, value]) =>
-      databaseDigests.has(key) && databaseDigests.get(key) !== value
-  )
-  if (unequalDigestEntry) {
-    const version = unequalDigestEntry[0]
-    const filename = `${version.toString().padStart(4, "0")}.sql`
-    const fileDigest = unequalDigestEntry[1]
-    const databaseDigest = databaseDigests.get(unequalDigestEntry[0])
-    throw new Error(
-      `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
-    )
-  }
-
-  const versionsToMigrate = [...fileDigests.keys()]
-    .filter(key => !databaseDigests.has(key))
+  const versionsToMigrate = [...digestsFromFiles.keys()]
+    .filter(key => !digestsFromDatabase.has(key))
     .sort()
 
   log.info(
@@ -281,7 +264,7 @@ export const migrateDatabase = async (
           client,
           migrationTableName,
           version,
-          fileDigests.get(version)!
+          digestsFromFiles.get(version)!
         )
 
         if (inTransaction) {
