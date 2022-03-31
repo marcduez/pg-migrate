@@ -127,6 +127,7 @@ describe("databaseNeedsMigration()", () => {
       new Client(),
       "migrationDir",
       "migrationTable",
+      // eslint-disable-next-line no-console
       { debug: message => console.debug(message) }
     )
 
