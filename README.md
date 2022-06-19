@@ -19,7 +19,19 @@ $ yarn add @marcduez/pg-migrate
 
 ## General Usage
 
+### Using the CLI
+
+To view usage instructions for the CLI, use the `--help` command:
+
+```sh
+$ npm run pg-migrate --help
+
+$ yarn pg-migrate --help
+```
+
 ### Creating a migration
+
+In script:
 
 ```typescript
 import { createDatabaseMigration } from "@marcduez/pg-migrate"
@@ -32,7 +44,17 @@ import { createDatabaseMigration } from "@marcduez/pg-migrate"
 })()
 ```
 
+Using the CLI:
+
+```sh
+$ npm run pg-migrate create
+
+$ yarn pg-migrate create
+```
+
 ### Migrating the database
+
+In script:
 
 ```typescript
 import { createDatabaseMigration } from "@marcduez/pg-migrate"
@@ -50,6 +72,14 @@ import { Client } from "pg"
     await client.end()
   }
 })()
+```
+
+Using the CLI:
+
+```sh
+$ npm run pg-migrate migrate
+
+$ yarn pg-migrate migrate
 ```
 
 ### Throwing if database is not fully migrated

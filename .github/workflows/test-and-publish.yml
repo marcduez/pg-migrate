@@ -25,6 +25,8 @@ jobs:
 
       - run: yarn build
 
+      - run: cp package.json dist && cd dist
+
       - uses: JS-DevTools/npm-publish@v1
         id: npm_publish
         with:
