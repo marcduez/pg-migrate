@@ -1,7 +1,0 @@
-# Ignore everything
-*
-
-# But not these files...
-!lib/*
-!README.md
-!LICENSE

@@ -1,6 +1,6 @@
 {
   "name": "@marcduez/pg-migrate",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "main": "./index.js",
   "types": "./index.d.ts",
   "repository": "git@github.com:marcduez/pg-migrate.git",
@@ -38,7 +38,7 @@
   },
   "scripts": {
     "start-cli": "ts-node src/cli.ts",
-    "build": "tsc --build tsconfig.notests.json",
+    "build": "tsc --build tsconfig.build.json",
     "lint": "tsc --noEmit && prettier -c . && eslint .",
     "test": "jest"
   },
