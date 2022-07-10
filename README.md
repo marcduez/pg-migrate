@@ -2,12 +2,12 @@
 
 <span class="badge-npmversion"><a href="https://npmjs.org/package/@marcduez/pg-migrate" title="View this project on NPM"><img src="https://img.shields.io/npm/v/@marcduez/pg-migrate.svg" alt="NPM version" /></a></span>
 
-Programmatic PostgreSQL database migrations. There are many packages that do this, but this package makes the following assumptions:
+PostgreSQL database migrations, from script or the command line. There are many packages that do this, but this package makes the following assumptions:
 
 1. Migrations are written in vanilla SQL. This library does not use a DSL for describing changes.
 2. Migrations are one-way. There is no support for "down" migrations to undo "up" migrations, because I have never found that useful.
 3. Migrations are ordered (e.g. `0004.sql`), but not named (e.g. `0004-create-user-table.sql`). If multiple contributors merge their code after creating migrations, I want them to collide and need resolution.
-4. This library presumes you bring your own PG client. I like this because it makes it agnostic to how you configure your database. For instance, I like to use `dotenv` for test and dev database settings, but I don't want this library to be aware of environment variables.
+4. When run from script, this library presumes you bring your own PG client. I like this because it makes it agnostic to how you configure your database. For instance, I like to use [dotenv](https://www.npmjs.com/package/dotenv) to keep development and environment database settings separate.
 
 ## Installation
 
@@ -27,6 +27,25 @@ To view usage instructions for the CLI, use the `--help` command:
 $ npm run pg-migrate --help
 
 $ yarn pg-migrate --help
+```
+
+### Environment Variables
+
+The CLI accepts the following environment variables:
+
+```
+PGURI - Database connection string. When supplied other variables are ignored.
+PGUSER - Database user name.
+PGHOST - Database server host or socket directory.
+PGPASSWORD - Database password.
+PGDATABASE - Database name to connect to.
+PGPORT - Database server port.
+```
+
+Example:
+
+```sh
+$ PGURI=postgres://user:password@host:port/database npm run pg-migrate
 ```
 
 ### Creating a migration

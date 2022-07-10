@@ -51,6 +51,9 @@ yargs(hideBin(process.argv))
         alias: "W",
         describe: "Database password (or set PGPASSWORD env variable)",
       },
+      "connection-string": {
+        describe: "Database connection string (or set PGURI env variable)",
+      },
     },
     handler: async ({
       migrationDir,
@@ -60,6 +63,7 @@ yargs(hideBin(process.argv))
       database,
       username,
       password,
+      connectionString,
     }: {
       migrationDir: string
       migrationTable: string
@@ -68,22 +72,32 @@ yargs(hideBin(process.argv))
       database?: string
       username?: string
       password?: string
+      connectionString: string
     }) => {
+      let client: Client
       const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
-      const resolvedHost = host ?? process.env.PGHOST ?? "localhost"
-      const resolvedPort = port ?? parseInt(process.env.PGPORT ?? "5432", 10)
-      const resolvedDatabase =
-        database ?? process.env.PGDATABASE ?? "__no_database_provided__"
-      const resolvedUsername = username ?? process.env.PGUSER ?? "postgres"
-      const resolvedPassword = password ?? process.env.PGPASSWORD
 
-      const client = new Client({
-        host: resolvedHost,
-        port: resolvedPort,
-        database: resolvedDatabase,
-        user: resolvedUsername,
-        password: resolvedPassword,
-      })
+      const resolvedConnectionString = connectionString ?? process.env.PGURI
+      if (resolvedConnectionString) {
+        client = new Client({
+          connectionString: resolvedConnectionString,
+        })
+      } else {
+        const resolvedHost = host ?? process.env.PGHOST ?? "localhost"
+        const resolvedPort = port ?? parseInt(process.env.PGPORT ?? "5432", 10)
+        const resolvedDatabase =
+          database ?? process.env.PGDATABASE ?? "__no_database_provided__"
+        const resolvedUsername = username ?? process.env.PGUSER ?? "postgres"
+        const resolvedPassword = password ?? process.env.PGPASSWORD
+
+        client = new Client({
+          host: resolvedHost,
+          port: resolvedPort,
+          database: resolvedDatabase,
+          user: resolvedUsername,
+          password: resolvedPassword,
+        })
+      }
 
       await client.connect()
       try {
