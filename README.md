@@ -76,7 +76,7 @@ $ yarn pg-migrate create
 In script:
 
 ```typescript
-import { createDatabaseMigration } from "@marcduez/pg-migrate"
+import { migrateDatabase } from "@marcduez/pg-migrate"
 import { Client } from "pg"
 
 // Your migrate-database script.
