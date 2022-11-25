@@ -20,12 +20,8 @@ afterEach(() => {
   mockFs.restore()
 })
 
-const getDigestFromString = (str: string) => {
-  return crypto
-    .createHash("md5")
-    .update(Buffer.from(str, "utf-8"))
-    .digest("hex")
-}
+const getDigestFromString = (str: string) =>
+  crypto.createHash("md5").update(Buffer.from(str, "utf-8")).digest("hex")
 
 describe("databaseNeedsMigration()", () => {
   it("throws when migration directory does not exist", async () => {
@@ -198,11 +194,11 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
       [expect.any(String), ["migrations"]],
       [expect.stringMatching(/^create\stable\s.*/)],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
     ])
   })
 
@@ -222,10 +218,10 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
     ])
   })
 
@@ -246,10 +242,10 @@ describe("migrateDatabase()", () => {
     )
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
     ])
   })
 
@@ -276,10 +272,10 @@ describe("migrateDatabase()", () => {
     )
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
     ])
   })
 
@@ -296,9 +292,7 @@ describe("migrateDatabase()", () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: files.reduce<
         Record<string, string>
-      >((map, [, name, content]) => {
-        return { ...map, [name]: content }
-      }, {}),
+      >((map, [, name, content]) => ({ ...map, [name]: content }), {}),
     })
     mockQuery
       .mockResolvedValueOnce({ rows: [{ acquired: true }] })
@@ -313,7 +307,10 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      ["select pg_try_advisory_lock($1) as acquired", [expect.any(BigInt)]],
+      [
+        "select pg_try_advisory_lock($1) as acquired",
+        [expect.any(BigInt as any)],
+      ],
       [
         `select exists (
         select
@@ -325,7 +322,7 @@ describe("migrateDatabase()", () => {
       ],
       ["select version, md5 from migrations"],
       ...files
-        .map(([index, _, content, hash]) => [
+        .map(([index, , content, hash]) => [
           ["begin transaction"],
           [content],
           [
@@ -335,7 +332,10 @@ describe("migrateDatabase()", () => {
           ["commit"],
         ])
         .reduce((acc, arr) => [...acc, ...arr], []),
-      ["select pg_advisory_unlock($1) as released", [expect.any(BigInt)]],
+      [
+        "select pg_advisory_unlock($1) as released",
+        [expect.any(BigInt as any)],
+      ],
     ])
   })
 
@@ -358,7 +358,7 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
       [migration],
@@ -366,7 +366,7 @@ describe("migrateDatabase()", () => {
         expect.stringMatching(/^insert\sinto\s.*/),
         [1, "4ce5485a7e94e5f5a7c9fd3357ced0af"],
       ],
-      [expect.any(String), [expect.any(BigInt)]],
+      [expect.any(String), [expect.any(BigInt as any)]],
     ])
   })
 })
