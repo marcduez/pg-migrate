@@ -1,3 +1,4 @@
+import crypto from "crypto"
 import mockFs from "mock-fs"
 import path from "path"
 import { Client, QueryResult } from "pg"
@@ -18,6 +19,13 @@ jest.mock("pg", () => ({
 afterEach(() => {
   mockFs.restore()
 })
+
+const getDigestFromString = (str: string) => {
+  return crypto
+    .createHash("md5")
+    .update(Buffer.from(str, "utf-8"))
+    .digest("hex")
+}
 
 describe("databaseNeedsMigration()", () => {
   it("throws when migration directory does not exist", async () => {
@@ -276,10 +284,21 @@ describe("migrateDatabase()", () => {
   })
 
   it("applies migration with transaction", async () => {
+    const files = [...new Array(101)].map<[number, string, string, string]>(
+      (_, i) => [
+        i,
+        `${i.toString().padStart(4, "0")}.sql`,
+        `migration${i}`,
+        getDigestFromString(`migration${i}`),
+      ]
+    )
+
     mockFs({
-      [path.join(process.cwd(), "migrations")]: {
-        "0001.sql": "migration1",
-      },
+      [path.join(process.cwd(), "migrations")]: files.reduce<
+        Record<string, string>
+      >((map, [, name, content]) => {
+        return { ...map, [name]: content }
+      }, {}),
     })
     mockQuery
       .mockResolvedValueOnce({ rows: [{ acquired: true }] })
@@ -294,17 +313,29 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt)]],
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-      ["begin transaction"],
-      ["migration1"],
+      ["select pg_try_advisory_lock($1) as acquired", [expect.any(BigInt)]],
       [
-        expect.stringMatching(/^insert\sinto\s.*/),
-        [1, "7efb2a07775469cb63c3b4b2d8302e8e"],
+        `select exists (
+        select
+        from information_schema.tables
+        where table_schema = 'public'
+        and table_name = $1
+      )`,
+        ["migrations"],
       ],
-      ["commit"],
-      [expect.any(String), [expect.any(BigInt)]],
+      ["select version, md5 from migrations"],
+      ...files
+        .map(([index, _, content, hash]) => [
+          ["begin transaction"],
+          [content],
+          [
+            "insert into migrations (version, md5) values ($1, $2)",
+            [index, hash],
+          ],
+          ["commit"],
+        ])
+        .reduce((acc, arr) => [...acc, ...arr], []),
+      ["select pg_advisory_unlock($1) as released", [expect.any(BigInt)]],
     ])
   })
 
