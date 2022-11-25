@@ -11,7 +11,16 @@ yargs(hideBin(process.argv))
   .showHelpOnFail(false)
 
   // Migrate database
-  .command({
+  .command<{
+    migrationDir: string
+    migrationTable: string
+    host?: string
+    port?: number
+    database?: string
+    username?: string
+    password?: string
+    connectionString: string
+  }>({
     command: "migrate",
     describe: "Apply un-applied database migrations",
     builder: {
@@ -64,15 +73,6 @@ yargs(hideBin(process.argv))
       username,
       password,
       connectionString,
-    }: {
-      migrationDir: string
-      migrationTable: string
-      host?: string
-      port?: number
-      database?: string
-      username?: string
-      password?: string
-      connectionString: string
     }) => {
       let client: Client
       const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
@@ -109,7 +109,7 @@ yargs(hideBin(process.argv))
   })
 
   // Create migration
-  .command({
+  .command<{ migrationDir: string }>({
     command: "create",
     describe: "Create a database migration",
     builder: {
@@ -119,7 +119,7 @@ yargs(hideBin(process.argv))
         describe: "The migration directory to use",
       },
     },
-    handler: async ({ migrationDir }: { migrationDir: string }) => {
+    handler: async ({ migrationDir }) => {
       const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
       const filePath = await createDatabaseMigration(resolvedMigrationDir)
       console.log(`Database migration created: ${filePath}`)

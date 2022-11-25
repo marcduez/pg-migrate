@@ -15,7 +15,7 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
     await client.query<{ exists: boolean }>(
       `select exists (
         select
-        from information_schema.tables 
+        from information_schema.tables
         where table_schema = 'public'
         and table_name = $1
       )`,
@@ -233,7 +233,7 @@ export const migrateDatabase = async (
 
     const versionsToMigrate = [...digestsFromFiles.keys()]
       .filter(key => !digestsFromDatabase.has(key))
-      .sort()
+      .sort((a, b) => a - b)
 
     log.info(
       `There are ${versionsToMigrate.length} database migration(s) to apply`
