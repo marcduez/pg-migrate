@@ -28,7 +28,7 @@ describe("databaseNeedsMigration()", () => {
     mockFs({})
 
     await expect(databaseNeedsMigration(new Client())).rejects.toThrow(
-      /^The directory .* does not exist$/
+      /^The directory .* does not exist$/,
     )
   })
 
@@ -76,7 +76,7 @@ describe("databaseNeedsMigration()", () => {
       })
 
     await expect(databaseNeedsMigration(new Client())).rejects.toThrow(
-      "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files"
+      "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
     expect(mockQuery.mock.calls).toEqual([
@@ -102,7 +102,7 @@ describe("databaseNeedsMigration()", () => {
       })
 
     await expect(databaseNeedsMigration(new Client())).rejects.toThrow(
-      "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database"
+      "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
     expect(mockQuery.mock.calls).toEqual([
@@ -132,7 +132,7 @@ describe("databaseNeedsMigration()", () => {
       "migrationDir",
       "migrationTable",
       // eslint-disable-next-line no-console
-      { debug: message => console.debug(message) }
+      { debug: message => console.debug(message) },
     )
 
     expect(actual).toBe(false)
@@ -175,7 +175,7 @@ describe("migrateDatabase()", () => {
     mockFs({})
 
     await expect(migrateDatabase(new Client())).rejects.toThrow(
-      /^The directory .* does not exist$/
+      /^The directory .* does not exist$/,
     )
   })
 
@@ -194,11 +194,11 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.stringMatching(/^create\stable\s.*/)],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
     ])
   })
 
@@ -218,10 +218,10 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
     ])
   })
 
@@ -238,14 +238,14 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [{ released: true }] })
 
     await expect(migrateDatabase(new Client())).rejects.toThrow(
-      "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files"
+      "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
     ])
   })
 
@@ -268,14 +268,14 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [{ released: true }] })
 
     await expect(migrateDatabase(new Client())).rejects.toThrow(
-      "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database"
+      "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
     ])
   })
 
@@ -286,7 +286,7 @@ describe("migrateDatabase()", () => {
         `${i.toString().padStart(4, "0")}.sql`,
         `migration${i}`,
         getDigestFromString(`migration${i}`),
-      ]
+      ],
     )
 
     mockFs({
@@ -308,8 +308,8 @@ describe("migrateDatabase()", () => {
 
     expect(mockQuery.mock.calls).toEqual([
       [
-        "select pg_try_advisory_lock($1) as acquired",
-        [expect.any(BigInt as any)],
+        "select pg_try_advisory_lock($1, $2) as acquired",
+        [expect.any(Number), expect.any(Number)],
       ],
       [
         `select exists (
@@ -333,8 +333,8 @@ describe("migrateDatabase()", () => {
         ])
         .reduce((acc, arr) => [...acc, ...arr], []),
       [
-        "select pg_advisory_unlock($1) as released",
-        [expect.any(BigInt as any)],
+        "select pg_advisory_unlock($1, $2) as released",
+        [expect.any(Number), expect.any(Number)],
       ],
     ])
   })
@@ -358,7 +358,7 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(new Client())
 
     expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
       [migration],
@@ -366,7 +366,7 @@ describe("migrateDatabase()", () => {
         expect.stringMatching(/^insert\sinto\s.*/),
         [1, "4ce5485a7e94e5f5a7c9fd3357ced0af"],
       ],
-      [expect.any(String), [expect.any(BigInt as any)]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
     ])
   })
 })
@@ -376,7 +376,7 @@ describe("createDatabaseMigration()", () => {
     mockFs({})
 
     await expect(createDatabaseMigration()).rejects.toThrow(
-      /^The directory .* does not exist$/
+      /^The directory .* does not exist$/,
     )
   })
 
@@ -400,7 +400,7 @@ describe("createDatabaseMigration()", () => {
     })
 
     const actual = await createDatabaseMigration(
-      path.join(process.cwd(), "migrationDir")
+      path.join(process.cwd(), "migrationDir"),
     )
 
     expect(actual).toBe(path.join(process.cwd(), "migrationDir", "0003.sql"))

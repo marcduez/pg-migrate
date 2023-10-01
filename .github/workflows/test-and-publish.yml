@@ -14,18 +14,20 @@ jobs:
 
       - uses: actions/setup-node@v2
         with:
-          node-version: "14.x"
+          node-version: "18.x"
           cache: "yarn"
 
-      - run: yarn install --frozen-lockfile
+      - name: Install dependencies
+        run: yarn install --frozen-lockfile
 
-      - run: yarn lint
+      - name: Lint
+        run: yarn lint
 
-      - run: yarn test --ci
+      - name: Run tests
+        run: yarn test --ci
 
-      - run: yarn build
-
-      - run: cp package.json README.md LICENSE dist
+      - name: Build
+        run: yarn build
 
       - uses: JS-DevTools/npm-publish@v1
         id: npm_publish

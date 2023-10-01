@@ -6,7 +6,8 @@ import { ClientBase } from "pg"
 import readline from "readline"
 
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
-const MIGRATION_LOCK_ID = 9013200309969543n
+const MIGRATION_LOCK_ID1 = 1477123592
+const MIGRATION_LOCK_ID2 = 1012360337
 const MIGRATION_TABLE_NAME = "migrations"
 const MIGRATION_FILE_PATTERN = /^\d{4}\.sql$/i
 
@@ -19,7 +20,7 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
         where table_schema = 'public'
         and table_name = $1
       )`,
-      [tableName]
+      [tableName],
     )
   ).rows[0].exists
 
@@ -29,16 +30,16 @@ const createMigrationTable = async (client: ClientBase, tableName: string) =>
       version int not null primary key
       , md5 char(32) not null
       , applied_at_utc timestamp not null default (now() at time zone 'UTC')
-    )`
+    )`,
   )
 
 const getDigestsFromDatabase = async (client: ClientBase, tableName: string) =>
   new Map<number, string>(
     (
       await client.query<{ version: number; md5: string }>(
-        `select version, md5 from ${tableName}`
+        `select version, md5 from ${tableName}`,
       )
-    ).rows.map(row => [row.version, row.md5])
+    ).rows.map(row => [row.version, row.md5]),
   )
 
 const getDigestFromFile = async (filePath: string) => {
@@ -57,7 +58,7 @@ const getDigestFromFile = async (filePath: string) => {
 
 const getDigestsFromFiles = async (
   dir: string,
-  log: { debug: (message: any) => void }
+  log: { debug: (message: any) => void },
 ) => {
   const filenames = await fs.promises.readdir(dir)
   const map = new Map<number, string>()
@@ -97,11 +98,11 @@ const insertMigration = async (
   client: ClientBase,
   tableName: string,
   version: number,
-  md5: string
+  md5: string,
 ) => {
   await client.query(
     `insert into ${tableName} (version, md5) values ($1, $2)`,
-    [version, md5]
+    [version, md5],
   )
 }
 
@@ -109,8 +110,8 @@ const acquireLock = async (client: ClientBase): Promise<void> => {
   if (
     !(
       await client.query<{ acquired: boolean }>(
-        `select pg_try_advisory_lock($1) as acquired`,
-        [MIGRATION_LOCK_ID]
+        `select pg_try_advisory_lock($1, $2) as acquired`,
+        [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
       )
     ).rows[0].acquired
   ) {
@@ -122,8 +123,8 @@ const releaseLock = async (client: ClientBase): Promise<void> => {
   if (
     !(
       await client.query<{ released: boolean }>(
-        `select pg_advisory_unlock($1) as released`,
-        [MIGRATION_LOCK_ID]
+        `select pg_advisory_unlock($1, $2) as released`,
+        [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
       )
     ).rows[0].released
   ) {
@@ -138,17 +139,17 @@ const getMaxVersionFromFiles = async (dir: string) =>
       .filter(filename => /^\d{4}\.sql$/i.test(filename))
       .reduce<number>(
         (max, filename) => Math.max(max, parseInt(filename.slice(0, 4), 10)),
-        Number.NEGATIVE_INFINITY
-      )
+        Number.NEGATIVE_INFINITY,
+      ),
   )
 
 const throwIfDigestsDiffer = (
   digestsFromDatabase: Map<number, string>,
-  digestsFromFiles: Map<number, string>
+  digestsFromFiles: Map<number, string>,
 ) => {
   // Check if any previously applied migrations no longer match files.
   const unequalDigestEntry = [...digestsFromDatabase.entries()].find(
-    ([key, value]) => digestsFromFiles.get(key) !== value
+    ([key, value]) => digestsFromFiles.get(key) !== value,
   )
   if (unequalDigestEntry) {
     const [version, databaseDigest] = unequalDigestEntry
@@ -157,7 +158,7 @@ const throwIfDigestsDiffer = (
     throw new Error(
       fileDigest
         ? `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
-        : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`
+        : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`,
     )
   }
 }
@@ -175,7 +176,7 @@ export const databaseNeedsMigration = async (
   migrationTableName = MIGRATION_TABLE_NAME,
   log = {
     debug: (message: any) => console.debug(message),
-  }
+  },
 ) => {
   if (!fs.existsSync(migrationDir)) {
     throw new Error(`The directory ${migrationDir} does not exist`)
@@ -187,7 +188,7 @@ export const databaseNeedsMigration = async (
 
   const digestsFromDatabase = await getDigestsFromDatabase(
     client,
-    migrationTableName
+    migrationTableName,
   )
   const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
 
@@ -211,7 +212,7 @@ export const migrateDatabase = async (
     debug: (message: any) => console.debug(message),
     info: (message: any) => console.log(message),
     error: (message: any) => console.error(message),
-  }
+  },
 ) => {
   if (!fs.existsSync(migrationDir)) {
     throw new Error(`The directory ${migrationDir} does not exist`)
@@ -225,7 +226,7 @@ export const migrateDatabase = async (
 
     const digestsFromDatabase = await getDigestsFromDatabase(
       client,
-      migrationTableName
+      migrationTableName,
     )
     const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
 
@@ -236,7 +237,7 @@ export const migrateDatabase = async (
       .sort((a, b) => a - b)
 
     log.info(
-      `There are ${versionsToMigrate.length} database migration(s) to apply`
+      `There are ${versionsToMigrate.length} database migration(s) to apply`,
     )
     if (!versionsToMigrate.length) {
       return
@@ -264,7 +265,7 @@ export const migrateDatabase = async (
           client,
           migrationTableName,
           version,
-          digestsFromFiles.get(version)!
+          digestsFromFiles.get(version)!,
         )
 
         if (inTransaction) {
