@@ -61,7 +61,8 @@ yargs(hideBin(process.argv))
         describe: "Database password (or set PGPASSWORD env variable)",
       },
       "connection-string": {
-        describe: "Database connection string (or set PGURI env variable)",
+        describe:
+          "Database connection string (or set PGURI or DATABASE_URL env variable)",
       },
     },
     handler: async ({
@@ -77,7 +78,8 @@ yargs(hideBin(process.argv))
       let client: Client
       const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
 
-      const resolvedConnectionString = connectionString ?? process.env.PGURI
+      const resolvedConnectionString =
+        connectionString ?? process.env.PGURI ?? process.env.DATABASE_URL
       if (resolvedConnectionString) {
         client = new Client({
           connectionString: resolvedConnectionString,

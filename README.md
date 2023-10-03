@@ -34,7 +34,7 @@ $ yarn pg-migrate --help
 The CLI accepts the following environment variables:
 
 ```
-PGURI - Database connection string. When supplied other variables are ignored.
+PGURI or DATABASE_URL - Database connection string. When supplied other variables are ignored.
 PGUSER - Database user name.
 PGHOST - Database server host or socket directory.
 PGPASSWORD - Database password.
