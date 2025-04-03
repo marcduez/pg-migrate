@@ -10,6 +10,8 @@ const MIGRATION_LOCK_ID1 = 1477123592
 const MIGRATION_LOCK_ID2 = 1012360337
 const MIGRATION_TABLE_NAME = "migrations"
 const MIGRATION_FILE_PATTERN = /^\d{4}\.sql$/i
+// The time to wait between each attempt to acquire a database lock.
+const ACQUIRE_LOCK_BACK_OFFS_MS = [200, 500, 1000]
 
 const migrationTableExists = async (client: ClientBase, tableName: string) =>
   (
@@ -107,27 +109,35 @@ const insertMigration = async (
 }
 
 const acquireLock = async (client: ClientBase): Promise<void> => {
-  if (
-    !(
-      await client.query<{ acquired: boolean }>(
-        `select pg_try_advisory_lock($1, $2) as acquired`,
-        [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
-      )
-    ).rows[0].acquired
-  ) {
-    throw new Error("Could not acquire lock")
-  }
+  let retryIndex = 0
+  do {
+    const {
+      rows: [acquired],
+    } = await client.query<{ acquired: boolean }>(
+      `select pg_try_advisory_lock($1, $2) as acquired`,
+      [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
+    )
+    if (acquired) {
+      return
+    }
+    await new Promise(resolve => {
+      const randomMs = Math.floor(Math.random() * 100) - 50
+      setTimeout(resolve, ACQUIRE_LOCK_BACK_OFFS_MS[retryIndex] + randomMs)
+    })
+  } while (++retryIndex < ACQUIRE_LOCK_BACK_OFFS_MS.length)
+
+  throw new Error("Could not acquire lock")
 }
 
 const releaseLock = async (client: ClientBase): Promise<void> => {
-  if (
-    !(
-      await client.query<{ released: boolean }>(
-        `select pg_advisory_unlock($1, $2) as released`,
-        [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
-      )
-    ).rows[0].released
-  ) {
+  const {
+    rows: [released],
+  } = await client.query<{ released: boolean }>(
+    `select pg_advisory_unlock($1, $2) as released`,
+    [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
+  )
+
+  if (!released) {
     throw new Error("Could not release lock")
   }
 }

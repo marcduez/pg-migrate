@@ -14,7 +14,9 @@
     "project": "./tsconfig.eslint.json"
   },
   "rules": {
+    "@typescript-eslint/no-loop-func": "off",
     "import/prefer-default-export": "off",
+    "no-plusplus": "off",
     "no-restricted-syntax": [
       "error",
       "ForInStatement",
