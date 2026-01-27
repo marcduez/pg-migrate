@@ -1,29 +1,35 @@
+import type { MockInstance } from "vitest"
 import crypto from "crypto"
 import mockFs from "mock-fs"
 import path from "path"
-import { Client, QueryResult } from "pg"
+import { Client } from "pg"
+import type { QueryResult } from "pg"
 import {
   createDatabaseMigration,
   databaseNeedsMigration,
   migrateDatabase,
 } from "."
 
-const mockQuery = jest.fn<Promise<Partial<QueryResult<any>>>, any[]>()
-
-jest.mock("pg", () => ({
-  Client: jest.fn().mockImplementation(() => ({
-    query: mockQuery,
-  })),
-}))
-
-afterEach(() => {
-  mockFs.restore()
+vi.mock("pg", () => {
+  const Client = vi.fn(
+    class {
+      query = vi.fn()
+    },
+  )
+  return { Client }
 })
 
 const getDigestFromString = (str: string) =>
-  crypto.createHash("md5").update(Buffer.from(str, "utf-8")).digest("hex")
+  crypto
+    .createHash("md5")
+    .update(new Uint8Array(Buffer.from(str, "utf-8")))
+    .digest("hex")
 
 describe("databaseNeedsMigration()", () => {
+  afterEach(() => {
+    mockFs.restore()
+  })
+
   it("throws when migration directory does not exist", async () => {
     mockFs({})
 
@@ -36,12 +42,17 @@ describe("databaseNeedsMigration()", () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {},
     })
-    mockQuery.mockResolvedValueOnce({ rows: [{ exists: false }] })
 
-    const actual = await databaseNeedsMigration(new Client())
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    ).mockResolvedValueOnce({
+      rows: [{ exists: false }],
+    } as QueryResult)
+
+    const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(true)
-
     expect(mockQuery.mock.calls).toEqual([[expect.any(String), ["migrations"]]])
   })
 
@@ -51,14 +62,21 @@ describe("databaseNeedsMigration()", () => {
         "0001.sql": "migration1",
       },
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
-      .mockResolvedValueOnce({ rows: [] })
 
-    const actual = await databaseNeedsMigration(new Client())
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<
+        () => Promise<QueryResult<{ exists: boolean }>>
+      >
+    )
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      .mockResolvedValueOnce({
+        rows: [] as { exists: boolean }[],
+      } as QueryResult)
+
+    const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(true)
-
     expect(mockQuery.mock.calls).toEqual([
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
@@ -69,13 +87,17 @@ describe("databaseNeedsMigration()", () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {},
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       .mockResolvedValueOnce({
         rows: [{ version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" }],
-      })
+      } as QueryResult)
 
-    await expect(databaseNeedsMigration(new Client())).rejects.toThrow(
+    await expect(databaseNeedsMigration(client)).rejects.toThrow(
       "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
@@ -92,16 +114,20 @@ describe("databaseNeedsMigration()", () => {
         "0002.sql": "migration2",
       },
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       .mockResolvedValueOnce({
         rows: [
           { version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
           { version: 2, md5: "99836b0f4ca50ed7ed998c0141a334e3" },
         ],
-      })
+      } as QueryResult)
 
-    await expect(databaseNeedsMigration(new Client())).rejects.toThrow(
+    await expect(databaseNeedsMigration(client)).rejects.toThrow(
       "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
@@ -118,20 +144,24 @@ describe("databaseNeedsMigration()", () => {
         "0002.sql": "migration2",
       },
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       .mockResolvedValueOnce({
         rows: [
           { version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
           { version: 2, md5: "99836b0f4ca50ed7ed998c0141a334e4" },
         ],
-      })
+      } as QueryResult)
 
     const actual = await databaseNeedsMigration(
-      new Client(),
+      client,
       "migrationDir",
       "migrationTable",
-      // eslint-disable-next-line no-console
+
       { debug: message => console.debug(message) },
     )
 
@@ -150,16 +180,20 @@ describe("databaseNeedsMigration()", () => {
         "0002.sql": "migration2",
       },
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       .mockResolvedValueOnce({
         rows: [
           { version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
           { version: 2, md5: "99836b0f4ca50ed7ed998c0141a334e4" },
         ],
-      })
+      } as QueryResult)
 
-    const actual = await databaseNeedsMigration(new Client())
+    const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(false)
 
@@ -184,14 +218,17 @@ describe("migrateDatabase()", () => {
       [path.join(process.cwd(), "migrations")]: {},
     })
 
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
-      .mockResolvedValueOnce({ rows: [{ exists: false }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ released: true }] })
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ exists: false }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(new Client())
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
@@ -209,13 +246,16 @@ describe("migrateDatabase()", () => {
       },
     })
 
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ released: true }] })
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(new Client())
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
@@ -229,15 +269,19 @@ describe("migrateDatabase()", () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {},
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       .mockResolvedValueOnce({
         rows: [{ version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" }],
-      })
-      .mockResolvedValueOnce({ rows: [{ released: true }] })
+      } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await expect(migrateDatabase(new Client())).rejects.toThrow(
+    await expect(migrateDatabase(client)).rejects.toThrow(
       "Migration 1 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
@@ -256,18 +300,22 @@ describe("migrateDatabase()", () => {
         "0002.sql": "migration2",
       },
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       .mockResolvedValueOnce({
         rows: [
           { version: 1, md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
           { version: 2, md5: "99836b0f4ca50ed7ed998c0141a334e3" },
         ],
-      })
-      .mockResolvedValueOnce({ rows: [{ released: true }] })
+      } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await expect(migrateDatabase(new Client())).rejects.toThrow(
+    await expect(migrateDatabase(client)).rejects.toThrow(
       "Migration 0002.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
@@ -294,17 +342,21 @@ describe("migrateDatabase()", () => {
         Record<string, string>
       >((map, [, name, content]) => ({ ...map, [name]: content }), {}),
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ released: true }] })
 
-    await migrateDatabase(new Client())
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toEqual([
       [
@@ -347,15 +399,19 @@ describe("migrateDatabase()", () => {
         "0001.sql": migration,
       },
     })
-    mockQuery
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] })
-      .mockResolvedValueOnce({ rows: [{ exists: true }] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [] })
-      .mockResolvedValueOnce({ rows: [{ released: true }] })
 
-    await migrateDatabase(new Client())
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],

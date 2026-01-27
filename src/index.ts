@@ -1,4 +1,3 @@
-/* eslint-disable no-console */
 import crypto from "crypto"
 import fs from "fs"
 import path from "path"
@@ -60,7 +59,7 @@ const getDigestFromFile = async (filePath: string) => {
 
 const getDigestsFromFiles = async (
   dir: string,
-  log: { debug: (message: any) => void },
+  log: { debug: (message: unknown) => void },
 ) => {
   const filenames = await fs.promises.readdir(dir)
   const map = new Map<number, string>()
@@ -185,7 +184,7 @@ export const databaseNeedsMigration = async (
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
   log = {
-    debug: (message: any) => console.debug(message),
+    debug: (message: unknown) => console.debug(message),
   },
 ) => {
   if (!fs.existsSync(migrationDir)) {
@@ -219,9 +218,9 @@ export const migrateDatabase = async (
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
   log = {
-    debug: (message: any) => console.debug(message),
-    info: (message: any) => console.log(message),
-    error: (message: any) => console.error(message),
+    debug: (message: unknown) => console.debug(message),
+    info: (message: unknown) => console.log(message),
+    error: (message: unknown) => console.error(message),
   },
 ) => {
   if (!fs.existsSync(migrationDir)) {

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-/* eslint-disable no-console */
 import path from "path"
 import { Client } from "pg"
 import yargs from "yargs"
