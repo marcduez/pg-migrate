@@ -8,7 +8,7 @@ const MIGRATION_DIR = path.join(process.cwd(), "migrations")
 const MIGRATION_LOCK_ID1 = 1477123592
 const MIGRATION_LOCK_ID2 = 1012360337
 const MIGRATION_TABLE_NAME = "migrations"
-const MIGRATION_FILE_PATTERN = /^\d{4}\.sql$/i
+const MIGRATION_FILE_PATTERN = /^\d{14}(_.*)?\.sql$/i
 // The time to wait between each attempt to acquire a database lock.
 const ACQUIRE_LOCK_BACK_OFFS_MS = [200, 500, 1000]
 
@@ -26,21 +26,21 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
   ).rows[0].exists
 
 const createMigrationTable = async (client: ClientBase, tableName: string) =>
-  client.query(
+  await client.query(
     `create table public.${tableName} (
-      version int not null primary key
+      key char(14) collate "C" not null primary key
       , md5 char(32) not null
       , applied_at_utc timestamp not null default (now() at time zone 'UTC')
     )`,
   )
 
 const getDigestsFromDatabase = async (client: ClientBase, tableName: string) =>
-  new Map<number, string>(
+  new Map<string, string>(
     (
-      await client.query<{ version: number; md5: string }>(
-        `select version, md5 from ${tableName}`,
+      await client.query<{ key: string; md5: string }>(
+        `select key, md5 from ${tableName}`,
       )
-    ).rows.map(row => [row.version, row.md5]),
+    ).rows.map(row => [row.key, row.md5]),
   )
 
 const getDigestFromFile = async (filePath: string) => {
@@ -62,15 +62,15 @@ const getDigestsFromFiles = async (
   log: { debug: (message: unknown) => void },
 ) => {
   const filenames = await fs.promises.readdir(dir)
-  const map = new Map<number, string>()
+  const map = new Map<string, { filename: string; digest: string }>()
   for (const filename of filenames) {
     if (!MIGRATION_FILE_PATTERN.test(filename)) {
       log.debug(`Skipping non-migration file: ${filename}`)
       continue
     }
-    const version = parseInt(filename.slice(0, 4), 10)
+    const key = filename.slice(0, 14)
     const digest = await getDigestFromFile(path.join(dir, filename))
-    map.set(version, digest)
+    map.set(key, { filename, digest })
   }
   return map
 }
@@ -98,13 +98,13 @@ const shouldCreateTransactionForFile = async (filePath: string) => {
 const insertMigration = async (
   client: ClientBase,
   tableName: string,
-  version: number,
+  key: string,
   md5: string,
 ) => {
-  await client.query(
-    `insert into ${tableName} (version, md5) values ($1, $2)`,
-    [version, md5],
-  )
+  await client.query(`insert into ${tableName} (key, md5) values ($1, $2)`, [
+    key,
+    md5,
+  ])
 }
 
 const acquireLock = async (client: ClientBase): Promise<void> => {
@@ -141,35 +141,45 @@ const releaseLock = async (client: ClientBase): Promise<void> => {
   }
 }
 
-const getMaxVersionFromFiles = async (dir: string) =>
-  Math.max(
-    0,
-    (await fs.promises.readdir(dir))
-      .filter(filename => /^\d{4}\.sql$/i.test(filename))
-      .reduce<number>(
-        (max, filename) => Math.max(max, parseInt(filename.slice(0, 4), 10)),
-        Number.NEGATIVE_INFINITY,
-      ),
-  )
-
 const throwIfDigestsDiffer = (
-  digestsFromDatabase: Map<number, string>,
-  digestsFromFiles: Map<number, string>,
+  digestsFromDatabase: Map<string, string>,
+  digestsFromFiles: Map<string, { filename: string; digest: string }>,
 ) => {
-  // Check if any previously applied migrations no longer match files.
-  const unequalDigestEntry = [...digestsFromDatabase.entries()].find(
-    ([key, value]) => digestsFromFiles.get(key) !== value,
-  )
-  if (unequalDigestEntry) {
-    const [version, databaseDigest] = unequalDigestEntry
-    const filename = `${version.toString().padStart(4, "0")}.sql`
-    const fileDigest = digestsFromFiles.get(version)
+  // For each previously applied migration, check:
+  // - That a file still exists for it.
+  // - That the digest in the file matches the digest in the database.
+  for (const [key, digestFromDatabase] of digestsFromDatabase) {
+    const digestFromFile = digestsFromFiles.get(key)
+    if (digestFromFile?.digest === digestFromDatabase) {
+      continue
+    }
     throw new Error(
-      fileDigest
-        ? `Migration ${filename} has digest ${fileDigest} in files, and digest ${databaseDigest} in database`
-        : `Migration ${version} has digest ${databaseDigest} in database, and does not exist in files`,
+      digestFromFile?.filename
+        ? `Migration ${digestFromFile.filename} has digest ${digestFromFile.digest} in files, and digest ${digestFromDatabase} in database`
+        : `Migration ${key} has digest ${digestFromDatabase} in database, and does not exist in files`,
     )
   }
+}
+
+const normalizeMigrationName = (name: string) =>
+  name
+    .toLowerCase()
+    // Replace any non-alphanumeric, non-underscore character with an underscore.
+    .replace(/[^_a-z0-9]+/g, "_")
+    // Replace any sequence of 2 or more underscores with a single underscore.
+    .replace(/_{2,}/g, "_")
+    // Replace leading or trailing underscores with empty strings.
+    .replace(/^_+|_+$/g, "")
+
+const getCurrentTimestamp = () => {
+  const now = new Date()
+  const year = now.getUTCFullYear()
+  const month = String(now.getUTCMonth() + 1).padStart(2, "0")
+  const day = String(now.getUTCDate()).padStart(2, "0")
+  const hours = String(now.getUTCHours()).padStart(2, "0")
+  const minutes = String(now.getUTCMinutes()).padStart(2, "0")
+  const seconds = String(now.getUTCSeconds()).padStart(2, "0")
+  return `${year}${month}${day}${hours}${minutes}${seconds}`
 }
 
 /**
@@ -241,19 +251,17 @@ export const migrateDatabase = async (
 
     throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
 
-    const versionsToMigrate = [...digestsFromFiles.keys()]
+    const keysToMigrate = [...digestsFromFiles.keys()]
       .filter(key => !digestsFromDatabase.has(key))
-      .sort((a, b) => a - b)
+      .sort()
 
-    log.info(
-      `There are ${versionsToMigrate.length} database migration(s) to apply`,
-    )
-    if (!versionsToMigrate.length) {
+    log.info(`There are ${keysToMigrate.length} database migration(s) to apply`)
+    if (!keysToMigrate.length) {
       return
     }
 
-    for (const version of versionsToMigrate) {
-      const filename = `${version.toString().padStart(4, "0")}.sql`
+    for (const key of keysToMigrate) {
+      const { filename, digest } = digestsFromFiles.get(key)!
       log.info(`Applying migration ${filename}...`)
 
       const filePath = path.join(migrationDir, filename)
@@ -270,12 +278,7 @@ export const migrateDatabase = async (
           throw new Error(`File ${filename} is empty`)
         }
         await client.query(sql)
-        await insertMigration(
-          client,
-          migrationTableName,
-          version,
-          digestsFromFiles.get(version)!,
-        )
+        await insertMigration(client, migrationTableName, key, digest)
 
         if (inTransaction) {
           await client.query("commit")
@@ -303,16 +306,24 @@ export const migrateDatabase = async (
 
 /**
  * Creates a database migration file.
+ * @param migrationName - The name of the migration.
  * @param migrationDir - The migration directory to use.
  * @returns The path of the resulting file.
  */
-export const createDatabaseMigration = async (migrationDir = MIGRATION_DIR) => {
+export const createDatabaseMigration = async (
+  migrationName = "",
+  migrationDir = MIGRATION_DIR,
+) => {
   if (!fs.existsSync(migrationDir)) {
     throw new Error(`The directory ${migrationDir} does not exist`)
   }
 
-  const maxVersion = await getMaxVersionFromFiles(migrationDir)
-  const filename = `${(maxVersion + 1).toString().padStart(4, "0")}.sql`
+  const currentTimestamp = getCurrentTimestamp()
+  let normalizedName = normalizeMigrationName(migrationName)
+  if (normalizedName) {
+    normalizedName = `_${normalizedName}`
+  }
+  const filename = `${currentTimestamp}${normalizedName}.sql`
   const filePath = path.join(migrationDir, filename)
   await fs.promises.writeFile(filePath, "", "utf8")
   return filePath
