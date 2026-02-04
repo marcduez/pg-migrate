@@ -16,10 +16,15 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
-          cache: "yarn"
+          package-manager-cache: false
 
       - name: Enable Corepack and set Yarn version
         run: corepack enable && corepack use yarn@4.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          # Re-uses Node version from above.
+          cache: "yarn"
 
       - name: Install dependencies
         run: yarn install --immutable
