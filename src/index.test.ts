@@ -59,7 +59,7 @@ describe("databaseNeedsMigration()", () => {
   it("returns true when there are migrations that have not been applied to database", async () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {
-        "20200102030405.sql": "migration1",
+        "20200102030405_unapplied_migration.sql": "migration1",
       },
     })
 
@@ -97,12 +97,15 @@ describe("databaseNeedsMigration()", () => {
       // Select existing digests
       .mockResolvedValueOnce({
         rows: [
-          { key: "20200102030405", md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
+          {
+            filename: "20200102030405_applied_migration.sql",
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+          },
         ],
       } as QueryResult)
 
     await expect(databaseNeedsMigration(client)).rejects.toThrow(
-      "Migration 20200102030405 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
+      "Migration 20200102030405_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
     expect(mockQuery.mock.calls).toEqual([
@@ -128,8 +131,14 @@ describe("databaseNeedsMigration()", () => {
       // Select existing digests
       .mockResolvedValueOnce({
         rows: [
-          { key: "20200102030405", md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
-          { key: "20200102030406", md5: "99836b0f4ca50ed7ed998c0141a334e3" },
+          {
+            filename: "20200102030405.sql",
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+          },
+          {
+            filename: "20200102030406.sql",
+            md5: "99836b0f4ca50ed7ed998c0141a334e3",
+          },
         ],
       } as QueryResult)
 
@@ -146,8 +155,8 @@ describe("databaseNeedsMigration()", () => {
   it("returns false when database does not need migration with all arguments set", async () => {
     mockFs({
       [path.join(process.cwd(), "migrationDir")]: {
-        "20200102030405.sql": "migration1",
-        "20200102030406.sql": "migration2",
+        "20200102030405_first_migration.sql": "migration1",
+        "20200102030406_second_migration.sql": "migration2",
       },
     })
 
@@ -160,8 +169,14 @@ describe("databaseNeedsMigration()", () => {
       // Select existing digests
       .mockResolvedValueOnce({
         rows: [
-          { key: "20200102030405", md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
-          { key: "20200102030406", md5: "99836b0f4ca50ed7ed998c0141a334e4" },
+          {
+            filename: "20200102030405_first_migration.sql",
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+          },
+          {
+            filename: "20200102030406_second_migration.sql",
+            md5: "99836b0f4ca50ed7ed998c0141a334e4",
+          },
         ],
       } as QueryResult)
 
@@ -198,8 +213,14 @@ describe("databaseNeedsMigration()", () => {
       // Select existing digests
       .mockResolvedValueOnce({
         rows: [
-          { key: "20200102030405", md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
-          { key: "20200102030406", md5: "99836b0f4ca50ed7ed998c0141a334e4" },
+          {
+            filename: "20200102030405.sql",
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+          },
+          {
+            filename: "20200102030406.sql",
+            md5: "99836b0f4ca50ed7ed998c0141a334e4",
+          },
         ],
       } as QueryResult)
 
@@ -300,13 +321,16 @@ describe("migrateDatabase()", () => {
       // Select existing digests
       .mockResolvedValueOnce({
         rows: [
-          { key: "20200101000000", md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
+          {
+            filename: "20200101000000_applied_migration.sql",
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+          },
         ],
       } as QueryResult)
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
     await expect(migrateDatabase(client)).rejects.toThrow(
-      "Migration 20200101000000 has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
+      "Migration 20200101000000_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
     expect(mockQuery.mock.calls).toEqual([
@@ -336,8 +360,14 @@ describe("migrateDatabase()", () => {
       // Select existing digests
       .mockResolvedValueOnce({
         rows: [
-          { key: "20200101000000", md5: "7efb2a07775469cb63c3b4b2d8302e8e" },
-          { key: "20200101000001", md5: "99836b0f4ca50ed7ed998c0141a334e3" },
+          {
+            filename: "20200101000000_first_migration.sql",
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+          },
+          {
+            filename: "20200101000001_second_migration.sql",
+            md5: "99836b0f4ca50ed7ed998c0141a334e3",
+          },
         ],
       } as QueryResult)
       // Release lock
@@ -423,14 +453,14 @@ describe("migrateDatabase()", () => {
       )`,
         ["migrations"],
       ],
-      ["select key, md5 from migrations"],
+      ["select filename, md5 from migrations order by filename"],
       ...files
         .map(({ filename, content, digest }) => [
           ["begin transaction"],
           [content],
           [
-            "insert into migrations (key, md5) values ($1, $2)",
-            [filename.slice(0, 14), digest],
+            "insert into migrations (filename, md5) values ($1, $2)",
+            [filename, digest],
           ],
           ["commit"],
         ])
@@ -484,11 +514,11 @@ describe("migrateDatabase()", () => {
       )`,
         ["migrations"],
       ],
-      ["select key, md5 from migrations"],
+      ["select filename, md5 from migrations order by filename"],
       [migration],
       [
-        "insert into migrations (key, md5) values ($1, $2)",
-        ["20200101000000", "4ce5485a7e94e5f5a7c9fd3357ced0af"],
+        "insert into migrations (filename, md5) values ($1, $2)",
+        ["20200101000000.sql", "4ce5485a7e94e5f5a7c9fd3357ced0af"],
       ],
       [
         "select pg_advisory_unlock($1, $2) as released",

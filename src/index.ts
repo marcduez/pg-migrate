@@ -28,7 +28,7 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
 const createMigrationTable = async (client: ClientBase, tableName: string) =>
   await client.query(
     `create table public.${tableName} (
-      key char(14) collate "C" not null primary key
+      filename text collate "C" not null primary key
       , md5 char(32) not null
       , applied_at_utc timestamp not null default (now() at time zone 'UTC')
     )`,
@@ -37,10 +37,10 @@ const createMigrationTable = async (client: ClientBase, tableName: string) =>
 const getDigestsFromDatabase = async (client: ClientBase, tableName: string) =>
   new Map<string, string>(
     (
-      await client.query<{ key: string; md5: string }>(
-        `select key, md5 from ${tableName}`,
+      await client.query<{ filename: string; md5: string }>(
+        `select filename, md5 from ${tableName} order by filename`,
       )
-    ).rows.map(row => [row.key, row.md5]),
+    ).rows.map(row => [row.filename, row.md5]),
   )
 
 const getDigestFromFile = async (filePath: string) => {
@@ -61,18 +61,17 @@ const getDigestsFromFiles = async (
   dir: string,
   log: { debug: (message: unknown) => void },
 ) => {
-  const filenames = await fs.promises.readdir(dir)
-  const map = new Map<string, { filename: string; digest: string }>()
+  const filenames = (await fs.promises.readdir(dir)).sort()
+  const digestsByFilename = new Map<string, string>()
   for (const filename of filenames) {
     if (!MIGRATION_FILE_PATTERN.test(filename)) {
       log.debug(`Skipping non-migration file: ${filename}`)
       continue
     }
-    const key = filename.slice(0, 14)
     const digest = await getDigestFromFile(path.join(dir, filename))
-    map.set(key, { filename, digest })
+    digestsByFilename.set(filename, digest)
   }
-  return map
+  return digestsByFilename
 }
 
 const shouldCreateTransactionForFile = async (filePath: string) => {
@@ -98,13 +97,13 @@ const shouldCreateTransactionForFile = async (filePath: string) => {
 const insertMigration = async (
   client: ClientBase,
   tableName: string,
-  key: string,
+  filename: string,
   md5: string,
 ) => {
-  await client.query(`insert into ${tableName} (key, md5) values ($1, $2)`, [
-    key,
-    md5,
-  ])
+  await client.query(
+    `insert into ${tableName} (filename, md5) values ($1, $2)`,
+    [filename, md5],
+  )
 }
 
 const acquireLock = async (client: ClientBase): Promise<void> => {
@@ -143,20 +142,20 @@ const releaseLock = async (client: ClientBase): Promise<void> => {
 
 const throwIfDigestsDiffer = (
   digestsFromDatabase: Map<string, string>,
-  digestsFromFiles: Map<string, { filename: string; digest: string }>,
+  digestsFromFiles: Map<string, string>,
 ) => {
   // For each previously applied migration, check:
   // - That a file still exists for it.
   // - That the digest in the file matches the digest in the database.
-  for (const [key, digestFromDatabase] of digestsFromDatabase) {
-    const digestFromFile = digestsFromFiles.get(key)
-    if (digestFromFile?.digest === digestFromDatabase) {
+  for (const [filename, digestFromDatabase] of digestsFromDatabase) {
+    const digestFromFile = digestsFromFiles.get(filename)
+    if (digestFromFile === digestFromDatabase) {
       continue
     }
     throw new Error(
-      digestFromFile?.filename
-        ? `Migration ${digestFromFile.filename} has digest ${digestFromFile.digest} in files, and digest ${digestFromDatabase} in database`
-        : `Migration ${key} has digest ${digestFromDatabase} in database, and does not exist in files`,
+      digestFromFile
+        ? `Migration ${filename} has digest ${digestFromFile} in files, and digest ${digestFromDatabase} in database`
+        : `Migration ${filename} has digest ${digestFromDatabase} in database, and does not exist in files`,
     )
   }
 }
@@ -251,17 +250,19 @@ export const migrateDatabase = async (
 
     throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
 
-    const keysToMigrate = [...digestsFromFiles.keys()]
-      .filter(key => !digestsFromDatabase.has(key))
+    const filenamesToMigrate = [...digestsFromFiles.keys()]
+      .filter(filename => !digestsFromDatabase.has(filename))
       .sort()
 
-    log.info(`There are ${keysToMigrate.length} database migration(s) to apply`)
-    if (!keysToMigrate.length) {
+    log.info(
+      `There are ${filenamesToMigrate.length} database migration(s) to apply`,
+    )
+    if (!filenamesToMigrate.length) {
       return
     }
 
-    for (const key of keysToMigrate) {
-      const { filename, digest } = digestsFromFiles.get(key)!
+    for (const filename of filenamesToMigrate) {
+      const digest = digestsFromFiles.get(filename)!
       log.info(`Applying migration ${filename}...`)
 
       const filePath = path.join(migrationDir, filename)
@@ -278,7 +279,7 @@ export const migrateDatabase = async (
           throw new Error(`File ${filename} is empty`)
         }
         await client.query(sql)
-        await insertMigration(client, migrationTableName, key, digest)
+        await insertMigration(client, migrationTableName, filename, digest)
 
         if (inTransaction) {
           await client.query("commit")
