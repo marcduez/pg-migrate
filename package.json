@@ -1,6 +1,6 @@
 {
   "name": "@marcduez/pg-migrate",
-  "version": "2.0.5",
+  "version": "3.0.0",
   "main": "./cjs/index.js",
   "module": "./esm/index.js",
   "type": "module",
@@ -16,20 +16,20 @@
     "migration"
   ],
   "dependencies": {
-    "pg": "^8.14.1",
-    "yargs": "^17.7.2"
+    "pg": "^8.18.0",
+    "yargs": "^18.0.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.2",
     "@types/mock-fs": "^4.13.4",
-    "@types/pg": "^8.11.11",
+    "@types/pg": "^8.16.0",
     "@types/yargs": "^17.0.35",
     "eslint": "^9.39.2",
     "globals": "^17.2.0",
     "jiti": "^2.6.1",
     "mock-fs": "^5.5.0",
     "prettier": "^3.0.3",
-    "tsx": "^4.19.3",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3",
     "typescript-eslint": "^8.54.0",
     "vitest": "^4.0.18"

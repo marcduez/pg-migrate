@@ -7,7 +7,7 @@ import { createDatabaseMigration, migrateDatabase } from "."
 
 yargs(hideBin(process.argv))
   .usage("Usage: $0 <command> [options]")
-  .showHelpOnFail(false)
+  .showHelpOnFail(true)
 
   // Migrate database
   .command<{
@@ -110,19 +110,26 @@ yargs(hideBin(process.argv))
   })
 
   // Create migration
-  .command<{ migrationDir: string }>({
-    command: "create",
+  .command<{ migrationName: string; migrationDir: string }>({
+    command: "create [migration-name]",
     describe: "Create a database migration",
     builder: {
+      "migration-name": {
+        default: "",
+        describe: "The name of the migration",
+      },
       "migration-dir": {
         alias: "d",
         default: "migrations",
         describe: "The migration directory to use",
       },
     },
-    handler: async ({ migrationDir }) => {
+    handler: async ({ migrationName, migrationDir }) => {
       const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
-      const filePath = await createDatabaseMigration(resolvedMigrationDir)
+      const filePath = await createDatabaseMigration(
+        migrationName,
+        resolvedMigrationDir,
+      )
       console.log(`Database migration created: ${filePath}`)
     },
   })
