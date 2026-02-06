@@ -8,6 +8,7 @@ import {
   createDatabaseMigration,
   databaseNeedsMigration,
   migrateDatabase,
+  overwriteDatabaseMd5,
 } from "."
 
 vi.mock("pg", () => {
@@ -24,6 +25,57 @@ const getDigestFromString = (str: string) =>
     .createHash("md5")
     .update(new Uint8Array(Buffer.from(str, "utf-8")))
     .digest("hex")
+
+describe("createDatabaseMigration()", () => {
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("throws when migration directory does not exist", async () => {
+    mockFs({})
+
+    await expect(createDatabaseMigration()).rejects.toThrow(
+      /^The directory .* does not exist$/,
+    )
+  })
+
+  it("creates file with required arguments set", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {},
+    })
+    vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
+
+    const actual = await createDatabaseMigration()
+
+    expect(actual).toBe(
+      path.join(process.cwd(), "migrations", "20200102030405.sql"),
+    )
+  })
+
+  it("creates file with all arguments set", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrationDir")]: {
+        "0001.sql": "migration1",
+        "0002.sql": "migration2",
+        "my-file.sql": "ignored",
+      },
+    })
+    vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
+
+    const actual = await createDatabaseMigration(
+      "it's my _new_ migration!",
+      path.join(process.cwd(), "migrationDir"),
+    )
+
+    expect(actual).toBe(
+      path.join(
+        process.cwd(),
+        "migrationDir",
+        "20200102030405_it_s_my_new_migration.sql",
+      ),
+    )
+  })
+})
 
 describe("databaseNeedsMigration()", () => {
   afterEach(() => {
@@ -264,7 +316,11 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client)
+    await migrateDatabase(client, undefined, undefined, undefined, {
+      debug: () => {},
+      info: () => {},
+      error: () => {},
+    })
 
     expect(mockQuery.mock.calls).toEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
@@ -295,7 +351,11 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client)
+    await migrateDatabase(client, undefined, undefined, undefined, {
+      debug: () => {},
+      info: () => {},
+      error: () => {},
+    })
 
     expect(mockQuery.mock.calls).toEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
@@ -437,7 +497,11 @@ describe("migrateDatabase()", () => {
       return { rows: [{ released: true }] } as QueryResult
     })
 
-    await migrateDatabase(client)
+    await migrateDatabase(client, undefined, undefined, undefined, {
+      debug: () => {},
+      info: () => {},
+      error: () => {},
+    })
 
     expect(mockQuery.mock.calls).toEqual([
       [
@@ -498,7 +562,11 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client)
+    await migrateDatabase(client, undefined, undefined, undefined, {
+      debug: () => {},
+      info: () => {},
+      error: () => {},
+    })
 
     expect(mockQuery.mock.calls).toEqual([
       [
@@ -526,55 +594,160 @@ describe("migrateDatabase()", () => {
       ],
     ])
   })
+
+  it("updates statement_timeout when value is provided", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000_first_migration.sql": "migration1",
+      },
+    })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      // Select statement timeout
+      .mockResolvedValueOnce({
+        rows: [{ statement_timeout: "0" }],
+      } as QueryResult)
+      // Update statement timeout
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Select existing digests
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Apply migration
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Insert migration row
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+      // Update statement timeout
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+
+    await migrateDatabase(client, undefined, undefined, 300, {
+      debug: () => {},
+      info: () => {},
+      error: () => {},
+    })
+
+    expect(mockQuery.mock.calls).toEqual([
+      ["show statement_timeout"],
+      ["set statement_timeout = $1", ["300s"]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+      [expect.any(String), ["migrations"]],
+      [expect.any(String)],
+      ["begin transaction"],
+      ["migration1"],
+      [
+        "insert into migrations (filename, md5) values ($1, $2)",
+        [
+          "20200101000000_first_migration.sql",
+          "7efb2a07775469cb63c3b4b2d8302e8e",
+        ],
+      ],
+      ["commit"],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+      ["set statement_timeout = $1", ["0"]],
+    ])
+  })
 })
 
-describe("createDatabaseMigration()", () => {
+describe("overwriteDatabaseMd5()", () => {
   afterEach(() => {
     vi.useRealTimers()
   })
 
-  it("throws when migration directory does not exist", async () => {
+  it("throws when migration file does not exist", async () => {
     mockFs({})
 
-    await expect(createDatabaseMigration()).rejects.toThrow(
-      /^The directory .* does not exist$/,
-    )
+    await expect(
+      overwriteDatabaseMd5(new Client(), "path/to/migration-file.sql"),
+    ).rejects.toThrow(/^The file .* does not exist$/)
   })
 
-  it("creates file with required arguments set", async () => {
+  it("throws when migration table does not exist", async () => {
     mockFs({
-      [path.join(process.cwd(), "migrations")]: {},
-    })
-    vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
-
-    const actual = await createDatabaseMigration()
-
-    expect(actual).toBe(
-      path.join(process.cwd(), "migrations", "20200102030405.sql"),
-    )
-  })
-
-  it("creates file with all arguments set", async () => {
-    mockFs({
-      [path.join(process.cwd(), "migrationDir")]: {
-        "0001.sql": "migration1",
-        "0002.sql": "migration2",
-        "my-file.sql": "ignored",
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000_first_migration.sql": "migration1",
       },
     })
-    vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
 
-    const actual = await createDatabaseMigration(
-      "it's my _new_ migration!",
-      path.join(process.cwd(), "migrationDir"),
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
     )
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: false }] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    expect(actual).toBe(
+    await expect(
+      overwriteDatabaseMd5(
+        client,
+        path.join(
+          process.cwd(),
+          "migrations",
+          "20200101000000_first_migration.sql",
+        ),
+      ),
+    ).rejects.toThrow("The migration table migrations does not exist")
+
+    expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+      [expect.any(String), ["migrations"]],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+    ])
+  })
+
+  it("updates database md5 to match file md5", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000_first_migration.sql": "migration1",
+      },
+    })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Update md5
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await overwriteDatabaseMd5(
+      client,
       path.join(
         process.cwd(),
-        "migrationDir",
-        "20200102030405_it_s_my_new_migration.sql",
+        "migrations",
+        "20200101000000_first_migration.sql",
       ),
     )
+
+    expect(mockQuery.mock.calls).toEqual([
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+      [expect.any(String), ["migrations"]],
+      [
+        `update public.migrations set
+        md5 = $2
+      where
+        filename = $1
+        and md5 != $2`,
+        [
+          "20200101000000_first_migration.sql",
+          "7efb2a07775469cb63c3b4b2d8302e8e",
+        ],
+      ],
+      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+    ])
   })
 })

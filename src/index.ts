@@ -25,7 +25,7 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
     )
   ).rows[0].exists
 
-const createMigrationTable = async (client: ClientBase, tableName: string) =>
+const createMigrationTable = async (client: ClientBase, tableName: string) => {
   await client.query(
     `create table public.${tableName} (
       filename text collate "C" not null primary key
@@ -33,6 +33,7 @@ const createMigrationTable = async (client: ClientBase, tableName: string) =>
       , applied_at_utc timestamp not null default (now() at time zone 'UTC')
     )`,
   )
+}
 
 const getDigestsFromDatabase = async (client: ClientBase, tableName: string) =>
   new Map<string, string>(
@@ -182,7 +183,34 @@ const getCurrentTimestamp = () => {
 }
 
 /**
+ * Creates a database migration file.
+ *
+ * @param migrationName - The name of the migration.
+ * @param migrationDir - The migration directory to use.
+ * @returns The path of the resulting file.
+ */
+export const createDatabaseMigration = async (
+  migrationName = "",
+  migrationDir = MIGRATION_DIR,
+) => {
+  if (!fs.existsSync(migrationDir)) {
+    throw new Error(`The directory ${migrationDir} does not exist`)
+  }
+
+  const currentTimestamp = getCurrentTimestamp()
+  let normalizedName = normalizeMigrationName(migrationName)
+  if (normalizedName) {
+    normalizedName = `_${normalizedName}`
+  }
+  const filename = `${currentTimestamp}${normalizedName}.sql`
+  const filePath = path.join(migrationDir, filename)
+  await fs.promises.writeFile(filePath, "", "utf8")
+  return filePath
+}
+
+/**
  * Returns true if there are un-applied database migrations.
+ *
  * @param client - The database client to use.
  * @param migrationDir - The migration directory to use.
  * @param migrationTableName - The migration table name to use.
@@ -217,6 +245,7 @@ export const databaseNeedsMigration = async (
 
 /**
  * Applies any pending database migrations.
+ *
  * @param client - The database client to use.
  * @param migrationDir - The migration directory to use.
  * @param migrationTableName - The migration table name to use.
@@ -226,6 +255,7 @@ export const migrateDatabase = async (
   client: ClientBase,
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
+  statementTimeoutSeconds?: number,
   log = {
     debug: (message: unknown) => console.debug(message),
     info: (message: unknown) => console.log(message),
@@ -234,6 +264,18 @@ export const migrateDatabase = async (
 ) => {
   if (!fs.existsSync(migrationDir)) {
     throw new Error(`The directory ${migrationDir} does not exist`)
+  }
+
+  let currentStatementTimeout: string | null = null
+  if (statementTimeoutSeconds !== undefined) {
+    currentStatementTimeout = (
+      await client.query<{ statement_timeout: string }>(
+        "show statement_timeout",
+      )
+    ).rows[0].statement_timeout
+    await client.query("set statement_timeout = $1", [
+      `${statementTimeoutSeconds}s`,
+    ])
   }
 
   await acquireLock(client)
@@ -303,29 +345,50 @@ export const migrateDatabase = async (
       log.error(e)
     }
   }
+
+  if (currentStatementTimeout !== null) {
+    await client.query("set statement_timeout = $1", [currentStatementTimeout])
+  }
 }
 
 /**
- * Creates a database migration file.
- * @param migrationName - The name of the migration.
- * @param migrationDir - The migration directory to use.
- * @returns The path of the resulting file.
+ * Overwrites the MD5 digest of a migration in a database with the MD5 digest from the migration file.
  */
-export const createDatabaseMigration = async (
-  migrationName = "",
-  migrationDir = MIGRATION_DIR,
+export const overwriteDatabaseMd5 = async (
+  client: ClientBase,
+  migrationFilePath: string,
+  migrationTableName = MIGRATION_TABLE_NAME,
+  log = {
+    error: (message: unknown) => console.error(message),
+  },
 ) => {
-  if (!fs.existsSync(migrationDir)) {
-    throw new Error(`The directory ${migrationDir} does not exist`)
+  if (!fs.existsSync(migrationFilePath)) {
+    throw new Error(`The file ${migrationFilePath} does not exist`)
   }
 
-  const currentTimestamp = getCurrentTimestamp()
-  let normalizedName = normalizeMigrationName(migrationName)
-  if (normalizedName) {
-    normalizedName = `_${normalizedName}`
+  await acquireLock(client)
+  try {
+    if (!(await migrationTableExists(client, migrationTableName))) {
+      throw new Error(
+        `The migration table ${migrationTableName} does not exist`,
+      )
+    }
+
+    const digest = await getDigestFromFile(migrationFilePath)
+
+    await client.query(
+      `update public.${migrationTableName} set
+        md5 = $2
+      where
+        filename = $1
+        and md5 != $2`,
+      [path.basename(migrationFilePath), digest],
+    )
+  } finally {
+    try {
+      await releaseLock(client)
+    } catch (e) {
+      log.error(e)
+    }
   }
-  const filename = `${currentTimestamp}${normalizedName}.sql`
-  const filePath = path.join(migrationDir, filename)
-  await fs.promises.writeFile(filePath, "", "utf8")
-  return filePath
 }
