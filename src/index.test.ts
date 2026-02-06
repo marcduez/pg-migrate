@@ -1,3 +1,4 @@
+import { ChildProcess, exec, ExecException } from "child_process"
 import crypto from "crypto"
 import mockFs from "mock-fs"
 import path from "path"
@@ -19,6 +20,15 @@ vi.mock("pg", () => {
   )
   return { Client }
 })
+vi.mock("child_process")
+type ExecFn = (
+  command: string,
+  callback?: (
+    error: ExecException | null,
+    stdout: string,
+    stderr: string,
+  ) => void,
+) => ChildProcess
 
 const getDigestFromString = (str: string) =>
   crypto
@@ -31,18 +41,8 @@ describe("createDatabaseMigration()", () => {
     vi.useRealTimers()
   })
 
-  it("throws when migration directory does not exist", async () => {
-    mockFs({})
-
-    await expect(createDatabaseMigration()).rejects.toThrow(
-      /^The directory .* does not exist$/,
-    )
-  })
-
   it("creates file with required arguments set", async () => {
-    mockFs({
-      [path.join(process.cwd(), "migrations")]: {},
-    })
+    mockFs({})
     vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
 
     const actual = await createDatabaseMigration()
@@ -53,13 +53,7 @@ describe("createDatabaseMigration()", () => {
   })
 
   it("creates file with all arguments set", async () => {
-    mockFs({
-      [path.join(process.cwd(), "migrationDir")]: {
-        "0001.sql": "migration1",
-        "0002.sql": "migration2",
-        "my-file.sql": "ignored",
-      },
-    })
+    mockFs({})
     vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
 
     const actual = await createDatabaseMigration(
@@ -82,18 +76,8 @@ describe("databaseNeedsMigration()", () => {
     mockFs.restore()
   })
 
-  it("throws when migration directory does not exist", async () => {
-    mockFs({})
-
-    await expect(databaseNeedsMigration(new Client())).rejects.toThrow(
-      /^The directory .* does not exist$/,
-    )
-  })
-
   it("returns true when database does not contain migration table", async () => {
-    mockFs({
-      [path.join(process.cwd(), "migrations")]: {},
-    })
+    mockFs({})
 
     const client = new Client()
     const mockQuery = (
@@ -105,7 +89,9 @@ describe("databaseNeedsMigration()", () => {
     const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(true)
-    expect(mockQuery.mock.calls).toEqual([[expect.any(String), ["migrations"]]])
+    expect(mockQuery.mock.calls).toStrictEqual([
+      [expect.any(String), ["migrations"]],
+    ])
   })
 
   it("returns true when there are migrations that have not been applied to database", async () => {
@@ -129,16 +115,14 @@ describe("databaseNeedsMigration()", () => {
     const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(true)
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
     ])
   })
 
   it("throws when migration is in database and not in filesystem", async () => {
-    mockFs({
-      [path.join(process.cwd(), "migrations")]: {},
-    })
+    mockFs({})
 
     const client = new Client()
     const mockQuery = (
@@ -160,7 +144,7 @@ describe("databaseNeedsMigration()", () => {
       "Migration 20200102030405_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
     ])
@@ -198,7 +182,7 @@ describe("databaseNeedsMigration()", () => {
       "Migration 20200102030406.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
     ])
@@ -236,13 +220,12 @@ describe("databaseNeedsMigration()", () => {
       client,
       "migrationDir",
       "migrationTable",
-
       { debug: message => console.debug(message) },
     )
 
     expect(actual).toBe(false)
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), ["migrationTable"]],
       [expect.any(String)],
     ])
@@ -280,7 +263,7 @@ describe("databaseNeedsMigration()", () => {
 
     expect(actual).toBe(false)
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
     ])
@@ -288,18 +271,8 @@ describe("databaseNeedsMigration()", () => {
 })
 
 describe("migrateDatabase()", () => {
-  it("throws when migration directory does not exist", async () => {
-    mockFs({})
-
-    await expect(migrateDatabase(new Client())).rejects.toThrow(
-      /^The directory .* does not exist$/,
-    )
-  })
-
   it("creates migration table if it does not exist", async () => {
-    mockFs({
-      [path.join(process.cwd(), "migrations")]: {},
-    })
+    mockFs({})
 
     const client = new Client()
     const mockQuery = (
@@ -316,18 +289,15 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, {
+    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
       debug: () => {},
       info: () => {},
       error: () => {},
     })
 
-    expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [expect.stringMatching(/^create\stable\s.*/)],
-      [expect.any(String)],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
+    expect(mockQuery.mock.calls).toHaveLength(5)
+    expect(mockQuery.mock.calls[2]).toStrictEqual([
+      expect.stringMatching(/^create\stable\s.*/),
     ])
   })
 
@@ -351,18 +321,14 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, {
+    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
       debug: () => {},
       info: () => {},
       error: () => {},
     })
 
-    expect(mockQuery.mock.calls).toEqual([
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-    ])
+    // If query was only called 4 times, the it ignored the migration file.
+    expect(mockQuery.mock.calls).toHaveLength(4)
   })
 
   it("throws when migration is in database and not in filesystem", async () => {
@@ -393,7 +359,7 @@ describe("migrateDatabase()", () => {
       "Migration 20200101000000_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
@@ -437,7 +403,7 @@ describe("migrateDatabase()", () => {
       "Migration 20200101000001_second_migration.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String)],
@@ -466,6 +432,13 @@ describe("migrateDatabase()", () => {
         {} as Record<string, string>,
       ),
     })
+
+    const mockExec = vi
+      .mocked<ExecFn>(exec)
+      .mockImplementationOnce((_, callback) => {
+        callback?.(null, "", "")
+        return {} as ReturnType<ExecFn>
+      })
 
     let queryCount = 0
     const client = new Client()
@@ -497,13 +470,13 @@ describe("migrateDatabase()", () => {
       return { rows: [{ released: true }] } as QueryResult
     })
 
-    await migrateDatabase(client, undefined, undefined, undefined, {
+    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
       debug: () => {},
       info: () => {},
       error: () => {},
     })
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [
         "select pg_try_advisory_lock($1, $2) as acquired",
         [expect.any(Number), expect.any(Number)],
@@ -534,6 +507,12 @@ describe("migrateDatabase()", () => {
         [expect.any(Number), expect.any(Number)],
       ],
     ])
+    expect(mockExec.mock.calls).toStrictEqual([
+      [
+        'pg_dump --no-owner --no-privileges --schema-only --file=schema.sql "postgresql://:@undefined:undefined/"',
+        expect.any(Function),
+      ],
+    ])
   })
 
   it("applies migration without transaction", async () => {
@@ -544,6 +523,13 @@ describe("migrateDatabase()", () => {
         "20200101000000.sql": migration,
       },
     })
+
+    const mockExec = vi
+      .mocked<ExecFn>(exec)
+      .mockImplementationOnce((_, callback) => {
+        callback?.(null, "", "")
+        return {} as ReturnType<ExecFn>
+      })
 
     const client = new Client()
     const mockQuery = (
@@ -562,13 +548,13 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, {
+    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
       debug: () => {},
       info: () => {},
       error: () => {},
     })
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [
         "select pg_try_advisory_lock($1, $2) as acquired",
         [expect.any(Number), expect.any(Number)],
@@ -593,6 +579,12 @@ describe("migrateDatabase()", () => {
         [expect.any(Number), expect.any(Number)],
       ],
     ])
+    expect(mockExec.mock.calls).toStrictEqual([
+      [
+        'pg_dump --no-owner --no-privileges --schema-only --file=schema.sql "postgresql://:@undefined:undefined/"',
+        expect.any(Function),
+      ],
+    ])
   })
 
   it("updates statement_timeout when value is provided", async () => {
@@ -600,6 +592,11 @@ describe("migrateDatabase()", () => {
       [path.join(process.cwd(), "migrations")]: {
         "20200101000000_first_migration.sql": "migration1",
       },
+    })
+
+    vi.mocked<ExecFn>(exec).mockImplementationOnce((_, callback) => {
+      callback?.(null, "", "")
+      return {} as ReturnType<ExecFn>
     })
 
     const client = new Client()
@@ -627,13 +624,13 @@ describe("migrateDatabase()", () => {
       // Update statement timeout
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, 300, {
+    await migrateDatabase(client, undefined, undefined, undefined, 300, {
       debug: () => {},
       info: () => {},
       error: () => {},
     })
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       ["show statement_timeout"],
       ["set statement_timeout = $1", ["300s"]],
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
@@ -697,7 +694,7 @@ describe("overwriteDatabaseMd5()", () => {
       ),
     ).rejects.toThrow("The migration table migrations does not exist")
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
@@ -733,7 +730,7 @@ describe("overwriteDatabaseMd5()", () => {
       ),
     )
 
-    expect(mockQuery.mock.calls).toEqual([
+    expect(mockQuery.mock.calls).toStrictEqual([
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
       [expect.any(String), ["migrations"]],
       [

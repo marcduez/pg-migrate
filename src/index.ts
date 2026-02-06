@@ -1,7 +1,8 @@
+import { exec } from "child_process"
 import crypto from "crypto"
 import fs from "fs"
 import path from "path"
-import { ClientBase } from "pg"
+import { Client, ClientBase } from "pg"
 import readline from "readline"
 
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
@@ -9,6 +10,7 @@ const MIGRATION_LOCK_ID1 = 1477123592
 const MIGRATION_LOCK_ID2 = 1012360337
 const MIGRATION_TABLE_NAME = "migrations"
 const MIGRATION_FILE_PATTERN = /^\d{14}(_.*)?\.sql$/i
+const SCHEMA_FILE = "schema.sql"
 // The time to wait between each attempt to acquire a database lock.
 const ACQUIRE_LOCK_BACK_OFFS_MS = [200, 500, 1000]
 
@@ -62,6 +64,10 @@ const getDigestsFromFiles = async (
   dir: string,
   log: { debug: (message: unknown) => void },
 ) => {
+  if (!fs.existsSync(dir)) {
+    return new Map<string, string>()
+  }
+
   const filenames = (await fs.promises.readdir(dir)).sort()
   const digestsByFilename = new Map<string, string>()
   for (const filename of filenames) {
@@ -145,19 +151,18 @@ const throwIfDigestsDiffer = (
   digestsFromDatabase: Map<string, string>,
   digestsFromFiles: Map<string, string>,
 ) => {
-  // For each previously applied migration, check:
-  // - That a file still exists for it.
-  // - That the digest in the file matches the digest in the database.
   for (const [filename, digestFromDatabase] of digestsFromDatabase) {
-    const digestFromFile = digestsFromFiles.get(filename)
-    if (digestFromFile === digestFromDatabase) {
-      continue
+    if (!digestsFromFiles.has(filename)) {
+      throw new Error(
+        `Migration ${filename} has digest ${digestFromDatabase} in database, and does not exist in files`,
+      )
     }
-    throw new Error(
-      digestFromFile
-        ? `Migration ${filename} has digest ${digestFromFile} in files, and digest ${digestFromDatabase} in database`
-        : `Migration ${filename} has digest ${digestFromDatabase} in database, and does not exist in files`,
-    )
+    const digestFromFile = digestsFromFiles.get(filename)
+    if (digestFromFile !== digestFromDatabase) {
+      throw new Error(
+        `Migration ${filename} has digest ${digestFromFile} in files, and digest ${digestFromDatabase} in database`,
+      )
+    }
   }
 }
 
@@ -182,6 +187,15 @@ const getCurrentTimestamp = () => {
   return `${year}${month}${day}${hours}${minutes}${seconds}`
 }
 
+const getConnectionString = (client: Client) => {
+  const user = encodeURIComponent(client.user || "")
+  const password = encodeURIComponent(client.password || "")
+  const host = encodeURIComponent(client.host)
+  const database = encodeURIComponent(client.database || "")
+  const port = client.port
+  return `postgresql://${user}:${password}@${host}:${port}/${database}`
+}
+
 /**
  * Creates a database migration file.
  *
@@ -194,7 +208,7 @@ export const createDatabaseMigration = async (
   migrationDir = MIGRATION_DIR,
 ) => {
   if (!fs.existsSync(migrationDir)) {
-    throw new Error(`The directory ${migrationDir} does not exist`)
+    fs.mkdirSync(migrationDir, { recursive: true })
   }
 
   const currentTimestamp = getCurrentTimestamp()
@@ -224,10 +238,6 @@ export const databaseNeedsMigration = async (
     debug: (message: unknown) => console.debug(message),
   },
 ) => {
-  if (!fs.existsSync(migrationDir)) {
-    throw new Error(`The directory ${migrationDir} does not exist`)
-  }
-
   if (!(await migrationTableExists(client, migrationTableName))) {
     return true
   }
@@ -252,9 +262,10 @@ export const databaseNeedsMigration = async (
  * @param log - The logger to use.
  */
 export const migrateDatabase = async (
-  client: ClientBase,
+  client: Client,
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
+  schemaFile = SCHEMA_FILE,
   statementTimeoutSeconds?: number,
   log = {
     debug: (message: unknown) => console.debug(message),
@@ -262,10 +273,7 @@ export const migrateDatabase = async (
     error: (message: unknown) => console.error(message),
   },
 ) => {
-  if (!fs.existsSync(migrationDir)) {
-    throw new Error(`The directory ${migrationDir} does not exist`)
-  }
-
+  // If statementTimeoutSeconds is defined, set aside the current statement_timeout and set a new one.
   let currentStatementTimeout: string | null = null
   if (statementTimeoutSeconds !== undefined) {
     currentStatementTimeout = (
@@ -297,7 +305,9 @@ export const migrateDatabase = async (
       .sort()
 
     log.info(
-      `There are ${filenamesToMigrate.length} database migration(s) to apply`,
+      filenamesToMigrate.length === 1
+        ? "There is 1 database migration to apply"
+        : `There are ${filenamesToMigrate.length} database migrations to apply`,
     )
     if (!filenamesToMigrate.length) {
       return
@@ -326,6 +336,7 @@ export const migrateDatabase = async (
         if (inTransaction) {
           await client.query("commit")
         }
+
         log.info(`Applied migration`)
       } catch (migrationError) {
         if (inTransaction) {
@@ -338,6 +349,32 @@ export const migrateDatabase = async (
         throw migrationError
       }
     }
+
+    if (schemaFile) {
+      log.info(`Updating schema file ${schemaFile}...`)
+      const connectionString = getConnectionString(client)
+      await new Promise<void>((resolve, reject) => {
+        exec(
+          `pg_dump --no-owner --no-privileges --schema-only --file=${schemaFile} "${connectionString}"`,
+          (error, stdout, stderr) => {
+            if (error) {
+              reject(error)
+              return
+            }
+            if (stderr) {
+              log.error(stderr)
+            }
+            if (stdout) {
+              log.info(stdout)
+            }
+            resolve()
+          },
+        )
+      })
+      log.info("Updated schema file")
+    } else {
+      log.info(`Not updating schema file`)
+    }
   } finally {
     try {
       await releaseLock(client)
@@ -346,6 +383,7 @@ export const migrateDatabase = async (
     }
   }
 
+  // If we set aside a statement_timeout, restore it.
   if (currentStatementTimeout !== null) {
     await client.query("set statement_timeout = $1", [currentStatementTimeout])
   }

@@ -89,6 +89,8 @@ yargs(hideBin(process.argv))
   .command<{
     migrationDir: string
     migrationTable: string
+    schemaFile: string
+    timeoutSeconds?: number
     host?: string
     port?: number
     database?: string
@@ -102,12 +104,22 @@ yargs(hideBin(process.argv))
       "migration-dir": {
         alias: "d",
         default: "migrations",
-        describe: "The migration directory to use",
+        describe: "Directory where all the migration files are located",
       },
       "migration-table": {
         alias: "t",
         default: "migrations",
-        describe: "The migration table name to use",
+        describe: "Database table that tracks previously applied migrations",
+      },
+      "schema-file": {
+        alias: "s",
+        default: "schema.sql",
+        describe:
+          "File that the database schema will be written to after applying migrations",
+      },
+      "timeout-seconds": {
+        alias: "T",
+        describe: "Maximum allowed migration timeout, in seconds",
       },
       host: {
         alias: "h",
@@ -143,6 +155,8 @@ yargs(hideBin(process.argv))
     handler: async ({
       migrationDir,
       migrationTable,
+      schemaFile,
+      timeoutSeconds,
       host,
       port,
       database,
@@ -161,7 +175,13 @@ yargs(hideBin(process.argv))
       })
       await client.connect()
       try {
-        await migrateDatabase(client, resolvedMigrationDir, migrationTable)
+        await migrateDatabase(
+          client,
+          resolvedMigrationDir,
+          migrationTable,
+          schemaFile,
+          timeoutSeconds,
+        )
       } finally {
         await client.end()
       }

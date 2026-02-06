@@ -3,7 +3,7 @@
   "version": "3.0.0",
   "main": "./cjs/index.js",
   "module": "./esm/index.js",
-  "type": "module",
+  "type": "commonjs",
   "types": "./types/index.d.ts",
   "repository": "git@github.com:marcduez/pg-migrate.git",
   "author": "Marc Duez <marcduez@gmail.com>",
@@ -54,8 +54,6 @@
     "lint": "tsc --noEmit && prettier -c . && eslint .",
     "test": "vitest run"
   },
-  "bin": {
-    "pg-migrate": "./cjs/cli.js"
-  },
+  "bin": "./cjs/cli.js",
   "packageManager": "yarn@4.12.0"
 }
