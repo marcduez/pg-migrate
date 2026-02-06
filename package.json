@@ -54,6 +54,8 @@
     "lint": "tsc --noEmit && prettier -c . && eslint .",
     "test": "vitest run"
   },
-  "bin": "./cjs/cli.js",
+  "bin": {
+    "pg-migrate": "./cjs/cli.js"
+  },
   "packageManager": "yarn@4.12.0"
 }
