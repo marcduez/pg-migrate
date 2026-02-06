@@ -89,6 +89,7 @@ yargs(hideBin(process.argv))
   .command<{
     migrationDir: string
     migrationTable: string
+    pgDumpPath: string
     schemaFile: string
     timeoutSeconds?: number
     host?: string
@@ -111,11 +112,17 @@ yargs(hideBin(process.argv))
         default: "migrations",
         describe: "Database table that tracks previously applied migrations",
       },
+      "pg-dump-path": {
+        alias: "b",
+        default: "pg_dump",
+        describe:
+          "Path to the pg_dump executable used to write the database schema (set to empty string to skip writing schema)",
+      },
       "schema-file": {
         alias: "s",
         default: "schema.sql",
         describe:
-          "File that the database schema will be written to after applying migrations",
+          "File that the database schema will be written to after applying migrations (set to empty string to skip writing schema)",
       },
       "timeout-seconds": {
         alias: "T",
@@ -155,6 +162,7 @@ yargs(hideBin(process.argv))
     handler: async ({
       migrationDir,
       migrationTable,
+      pgDumpPath,
       schemaFile,
       timeoutSeconds,
       host,
@@ -179,6 +187,7 @@ yargs(hideBin(process.argv))
           client,
           resolvedMigrationDir,
           migrationTable,
+          pgDumpPath,
           schemaFile,
           timeoutSeconds,
         )

@@ -289,11 +289,7 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
-      debug: () => {},
-      info: () => {},
-      error: () => {},
-    })
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toHaveLength(5)
     expect(mockQuery.mock.calls[2]).toStrictEqual([
@@ -321,11 +317,7 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
-      debug: () => {},
-      info: () => {},
-      error: () => {},
-    })
+    await migrateDatabase(client)
 
     // If query was only called 4 times, the it ignored the migration file.
     expect(mockQuery.mock.calls).toHaveLength(4)
@@ -470,11 +462,7 @@ describe("migrateDatabase()", () => {
       return { rows: [{ released: true }] } as QueryResult
     })
 
-    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
-      debug: () => {},
-      info: () => {},
-      error: () => {},
-    })
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toStrictEqual([
       [
@@ -548,11 +536,7 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, undefined, {
-      debug: () => {},
-      info: () => {},
-      error: () => {},
-    })
+    await migrateDatabase(client)
 
     expect(mockQuery.mock.calls).toStrictEqual([
       [
@@ -624,11 +608,14 @@ describe("migrateDatabase()", () => {
       // Update statement timeout
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
 
-    await migrateDatabase(client, undefined, undefined, undefined, 300, {
-      debug: () => {},
-      info: () => {},
-      error: () => {},
-    })
+    await migrateDatabase(
+      client,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      300,
+    )
 
     expect(mockQuery.mock.calls).toStrictEqual([
       ["show statement_timeout"],

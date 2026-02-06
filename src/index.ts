@@ -265,6 +265,7 @@ export const migrateDatabase = async (
   client: Client,
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
+  pgDumpPath = "pg_dump",
   schemaFile = SCHEMA_FILE,
   statementTimeoutSeconds?: number,
   log = {
@@ -350,12 +351,12 @@ export const migrateDatabase = async (
       }
     }
 
-    if (schemaFile) {
+    if (!!pgDumpPath && !!schemaFile) {
       log.info(`Updating schema file ${schemaFile}...`)
       const connectionString = getConnectionString(client)
       await new Promise<void>((resolve, reject) => {
         exec(
-          `pg_dump --no-owner --no-privileges --schema-only --file=${schemaFile} "${connectionString}"`,
+          `${pgDumpPath} --no-owner --no-privileges --schema-only --file=${schemaFile} "${connectionString}"`,
           (error, stdout, stderr) => {
             if (error) {
               reject(error)
