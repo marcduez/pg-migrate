@@ -1,9 +1,9 @@
-import type { MockInstance } from "vitest"
 import crypto from "crypto"
 import mockFs from "mock-fs"
 import path from "path"
-import { Client } from "pg"
 import type { QueryResult } from "pg"
+import { Client } from "pg"
+import type { MockInstance } from "vitest"
 import {
   createDatabaseMigration,
   databaseNeedsMigration,

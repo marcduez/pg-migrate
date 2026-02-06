@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import inquirer from "inquirer"
 import path from "path"
 import { Client } from "pg"
 import yargs from "yargs"
@@ -8,7 +9,6 @@ import {
   migrateDatabase,
   overwriteDatabaseMd5,
 } from "."
-import inquirer from "inquirer"
 
 const getClient = ({
   host,
