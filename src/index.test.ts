@@ -1,5 +1,6 @@
 import { ChildProcess, exec, ExecException } from "child_process"
 import crypto from "crypto"
+import fs from "fs"
 import mockFs from "mock-fs"
 import path from "path"
 import type { QueryResult } from "pg"
@@ -9,6 +10,7 @@ import {
   createDatabaseMigration,
   databaseNeedsMigration,
   migrateDatabase,
+  migrateV2ToV3,
   overwriteDatabaseMd5,
 } from "."
 
@@ -635,6 +637,140 @@ describe("migrateDatabase()", () => {
       ["commit"],
       [expect.any(String), [expect.any(Number), expect.any(Number)]],
       ["set statement_timeout = $1", ["0"]],
+    ])
+  })
+})
+
+describe("migrateV2ToV3", () => {
+  it("throws if migration directory does not exist", async () => {
+    mockFs({})
+
+    await expect(migrateV2ToV3(new Client())).rejects.toThrow(
+      /^The directory .* does not exist$/,
+    )
+  })
+
+  it("throws if migration table does not exist", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000_first_migration.sql": "migration1",
+      },
+    })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: false }] } as QueryResult)
+
+    await expect(migrateV2ToV3(client)).rejects.toThrow(
+      "The migration table migrations does not exist",
+    )
+
+    expect(mockQuery.mock.calls).toStrictEqual([
+      [expect.any(String), ["migrations"]],
+    ])
+  })
+
+  it("drops and recreates migration table and renames files", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {
+        "0001.sql": "migration1",
+        "0002.sql": "migration2",
+        "0003.sql": "migration3",
+      },
+    })
+
+    vi.mocked<ExecFn>(exec).mockImplementationOnce((_, callback) => {
+      callback?.(null, "", "")
+      return {} as ReturnType<ExecFn>
+    })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Begin transaction
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Select existing migrations
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            version: 1,
+            md5: "7efb2a07775469cb63c3b4b2d8302e8e",
+            applied_at: "2020-01-02T03:04:05Z",
+          },
+          {
+            version: 2,
+            md5: "99836b0f4ca50ed7ed998c0141a334e4",
+            applied_at: "2020-02-03T04:05:06Z",
+          },
+          {
+            version: 3,
+            md5: "855c86c7fb7b67c95e7de5a0a8b63b84",
+            applied_at: "2020-03-04T05:06:07Z",
+          },
+        ],
+      } as QueryResult)
+      // Drop migrations table
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Create migrations table
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Insert migration 1
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Insert migration 2
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Insert migration 3
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Commit transaction
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await migrateV2ToV3(client)
+
+    const actualFilenames = (
+      await fs.promises.readdir(path.join(process.cwd(), "migrations"))
+    ).sort()
+
+    expect(mockQuery.mock.calls).toHaveLength(11)
+    expect(mockQuery.mock.calls[3]).toStrictEqual([
+      "select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from migrations order by version",
+    ])
+    expect(mockQuery.mock.calls[4]).toStrictEqual(["drop table migrations"])
+    expect(mockQuery.mock.calls[6]).toStrictEqual([
+      "insert into migrations (filename, md5, applied_at_utc) values ($1, $2, $3)",
+      [
+        "20200102030405.sql",
+        "7efb2a07775469cb63c3b4b2d8302e8e",
+        "2020-01-02T03:04:05.000Z",
+      ],
+    ])
+    expect(mockQuery.mock.calls[7]).toStrictEqual([
+      "insert into migrations (filename, md5, applied_at_utc) values ($1, $2, $3)",
+      [
+        "20200203040506.sql",
+        "99836b0f4ca50ed7ed998c0141a334e4",
+        "2020-02-03T04:05:06.000Z",
+      ],
+    ])
+    expect(mockQuery.mock.calls[8]).toStrictEqual([
+      "insert into migrations (filename, md5, applied_at_utc) values ($1, $2, $3)",
+      [
+        "20200304050607.sql",
+        "855c86c7fb7b67c95e7de5a0a8b63b84",
+        "2020-03-04T05:06:07.000Z",
+      ],
+    ])
+    expect(actualFilenames).toStrictEqual([
+      "20200102030405.sql",
+      "20200203040506.sql",
+      "20200304050607.sql",
     ])
   })
 })

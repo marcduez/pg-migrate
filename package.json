@@ -16,7 +16,7 @@
     "migration"
   ],
   "dependencies": {
-    "inquirer": "^13.2.2",
+    "@inquirer/prompts": "^8.2.0",
     "pg": "^8.18.0",
     "yargs": "^18.0.0"
   },
@@ -46,11 +46,11 @@
     "./package.json": "./package.json"
   },
   "scripts": {
-    "start-cli": "tsx src/cli.ts",
+    "build": "yarn run build:types && yarn run build:esm && yarn run build:cjs && cp package.json dist && cp README.md dist && cp LICENSE dist",
     "build:types": "tsc --build ./tsconfig.types.json",
     "build:esm": "tsc --build ./tsconfig.esm.json && cp package-esm.json dist/esm/package.json",
     "build:cjs": "tsc --build ./tsconfig.cjs.json",
-    "build": "yarn run build:types && yarn run build:esm && yarn run build:cjs && cp package.json dist && cp README.md dist && cp LICENSE dist",
+    "dev:cli": "tsx src/cli.ts",
     "lint": "tsc --noEmit && prettier -c . && eslint .",
     "test": "vitest run"
   },

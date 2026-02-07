@@ -106,11 +106,19 @@ const insertMigration = async (
   tableName: string,
   filename: string,
   md5: string,
+  appliedAtUtc?: Date,
 ) => {
-  await client.query(
-    `insert into ${tableName} (filename, md5) values ($1, $2)`,
-    [filename, md5],
-  )
+  if (appliedAtUtc) {
+    await client.query(
+      `insert into ${tableName} (filename, md5, applied_at_utc) values ($1, $2, $3)`,
+      [filename, md5, appliedAtUtc.toISOString()],
+    )
+  } else {
+    await client.query(
+      `insert into ${tableName} (filename, md5) values ($1, $2)`,
+      [filename, md5],
+    )
+  }
 }
 
 const acquireLock = async (client: ClientBase): Promise<void> => {
@@ -176,14 +184,13 @@ const normalizeMigrationName = (name: string) =>
     // Replace leading or trailing underscores with empty strings.
     .replace(/^_+|_+$/g, "")
 
-const getCurrentTimestamp = () => {
-  const now = new Date()
-  const year = now.getUTCFullYear()
-  const month = String(now.getUTCMonth() + 1).padStart(2, "0")
-  const day = String(now.getUTCDate()).padStart(2, "0")
-  const hours = String(now.getUTCHours()).padStart(2, "0")
-  const minutes = String(now.getUTCMinutes()).padStart(2, "0")
-  const seconds = String(now.getUTCSeconds()).padStart(2, "0")
+const getTimestampString = (instant = new Date()) => {
+  const year = instant.getUTCFullYear()
+  const month = String(instant.getUTCMonth() + 1).padStart(2, "0")
+  const day = String(instant.getUTCDate()).padStart(2, "0")
+  const hours = String(instant.getUTCHours()).padStart(2, "0")
+  const minutes = String(instant.getUTCMinutes()).padStart(2, "0")
+  const seconds = String(instant.getUTCSeconds()).padStart(2, "0")
   return `${year}${month}${day}${hours}${minutes}${seconds}`
 }
 
@@ -194,6 +201,39 @@ const getConnectionString = (client: Client) => {
   const database = encodeURIComponent(client.database || "")
   const port = client.port
   return `postgresql://${user}:${password}@${host}:${port}/${database}`
+}
+
+const updateSchemaFile = async (
+  pgDumpPath: string,
+  schemaFile: string,
+  client: Client,
+  log: { error: (message: unknown) => void; info: (message: unknown) => void },
+) => {
+  if (!!pgDumpPath && !!schemaFile) {
+    log.info(`Updating schema file ${schemaFile}...`)
+    const connectionString = getConnectionString(client)
+    await new Promise<void>((resolve, reject) => {
+      exec(
+        `${pgDumpPath} --no-owner --no-privileges --schema-only --file=${schemaFile} "${connectionString}"`,
+        (error, stdout, stderr) => {
+          if (error) {
+            reject(error)
+            return
+          }
+          if (stderr) {
+            log.error(stderr)
+          }
+          if (stdout) {
+            log.info(stdout)
+          }
+          resolve()
+        },
+      )
+    })
+    log.info("Updated schema file")
+  } else {
+    log.info(`Not updating schema file`)
+  }
 }
 
 /**
@@ -211,7 +251,7 @@ export const createDatabaseMigration = async (
     fs.mkdirSync(migrationDir, { recursive: true })
   }
 
-  const currentTimestamp = getCurrentTimestamp()
+  const currentTimestamp = getTimestampString()
   let normalizedName = normalizeMigrationName(migrationName)
   if (normalizedName) {
     normalizedName = `_${normalizedName}`
@@ -259,6 +299,9 @@ export const databaseNeedsMigration = async (
  * @param client - The database client to use.
  * @param migrationDir - The migration directory to use.
  * @param migrationTableName - The migration table name to use.
+ * @param pgDumpPath - The path to the pg_dump binary. Set to empty string to skip writing the database schema to file.
+ * @param schemaFile - The path to the file to write the database schema to after applying the migrations. Set to empty string to skip writing the database schema to file.
+ * @param statementTimeoutSeconds - The number of seconds to set for statement_timeout when applying the migrations. If not set, the existing statement_timeout is not modified.
  * @param log - The logger to use.
  */
 export const migrateDatabase = async (
@@ -351,31 +394,8 @@ export const migrateDatabase = async (
       }
     }
 
-    if (!!pgDumpPath && !!schemaFile) {
-      log.info(`Updating schema file ${schemaFile}...`)
-      const connectionString = getConnectionString(client)
-      await new Promise<void>((resolve, reject) => {
-        exec(
-          `${pgDumpPath} --no-owner --no-privileges --schema-only --file=${schemaFile} "${connectionString}"`,
-          (error, stdout, stderr) => {
-            if (error) {
-              reject(error)
-              return
-            }
-            if (stderr) {
-              log.error(stderr)
-            }
-            if (stdout) {
-              log.info(stdout)
-            }
-            resolve()
-          },
-        )
-      })
-      log.info("Updated schema file")
-    } else {
-      log.info(`Not updating schema file`)
-    }
+    // Write the new database schema to file
+    await updateSchemaFile(pgDumpPath, schemaFile, client, log)
   } finally {
     try {
       await releaseLock(client)
@@ -387,6 +407,113 @@ export const migrateDatabase = async (
   // If we set aside a statement_timeout, restore it.
   if (currentStatementTimeout !== null) {
     await client.query("set statement_timeout = $1", [currentStatementTimeout])
+  }
+}
+
+/**
+ * Performs the tasks required to migrate from v2 to v3 of pg-migrate:
+ * - recreates the migration table with the new schema
+ * - renames all existing migration files to have a timestamp-based filename instead of a version-based filename
+ * - updates the database schema file
+ */
+export const migrateV2ToV3 = async (
+  client: Client,
+  migrationDir = MIGRATION_DIR,
+  migrationTableName = MIGRATION_TABLE_NAME,
+  pgDumpPath = "pg_dump",
+  schemaFile = SCHEMA_FILE,
+  log = {
+    debug: (message: unknown) => console.debug(message),
+    info: (message: unknown) => console.log(message),
+    error: (message: unknown) => console.error(message),
+  },
+) => {
+  if (!fs.existsSync(migrationDir)) {
+    throw new Error(`The directory ${migrationDir} does not exist`)
+  }
+
+  if (!(await migrationTableExists(client, migrationTableName))) {
+    throw new Error(`The migration table ${migrationTableName} does not exist`)
+  }
+
+  console.log("acquiring lock")
+  await acquireLock(client)
+  try {
+    console.log("beginning transaction")
+    await client.query("begin transaction")
+
+    try {
+      const newMigrationFilenamesByOldFilename = new Map<string, string>()
+
+      // Read all existing migration rows from database
+      console.log("selecting migrations")
+      const { rows: existingMigrationRows } = await client.query<{
+        version: number
+        md5: string
+        applied_at: string
+      }>(
+        `select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from ${migrationTableName} order by version`,
+      )
+
+      // Drop existing migration table
+      console.log("dropping migration table")
+      await client.query(`drop table ${migrationTableName}`)
+
+      // Create new migration table
+      console.log("creating migration table")
+      await createMigrationTable(client, migrationTableName)
+
+      // For each existing migration row, insert a row in the new table, and set aside a mapping from the old filename to the new filename
+      for (const row of existingMigrationRows) {
+        const appliedAt = new Date(row.applied_at)
+        const oldFilename = `${row.version.toString().padStart(4, "0")}.sql`
+        const newFilename = `${getTimestampString(appliedAt)}.sql`
+
+        newMigrationFilenamesByOldFilename.set(oldFilename, newFilename)
+
+        console.log("inserting migration")
+        await insertMigration(
+          client,
+          migrationTableName,
+          newFilename,
+          row.md5,
+          appliedAt,
+        )
+      }
+
+      // For every old-filename-to-new-filename mapping, rename the migration file on disk
+      for (const [
+        oldFilename,
+        newFilename,
+      ] of newMigrationFilenamesByOldFilename) {
+        fs.renameSync(
+          path.join(migrationDir, oldFilename),
+          path.join(migrationDir, newFilename),
+        )
+      }
+
+      // Commit the changes to the database
+      console.log("committing transaction")
+      await client.query("commit")
+
+      // Write the new database schema to file
+      await updateSchemaFile(pgDumpPath, schemaFile, client, log)
+    } catch (transactionError) {
+      try {
+        console.log("rolling back transaction")
+        await client.query("rollback")
+      } catch (rollbackError) {
+        log.error(rollbackError)
+      }
+      throw transactionError
+    }
+  } finally {
+    try {
+      console.log("releasing lock")
+      await releaseLock(client)
+    } catch (e) {
+      log.error(e)
+    }
   }
 }
 
