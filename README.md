@@ -156,7 +156,7 @@ import { Client } from "pg"
   })
   await client.connect()
   try {
-    await overwriteDatabaseMd5(client, "path/to/your/migration-file.sql")
+    await overwriteDatabaseMd5(client, "20260122153125.sql")
   } finally {
     await client.end()
   }
