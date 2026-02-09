@@ -744,6 +744,45 @@ describe("overwriteDatabaseMd5()", () => {
     expect(mockQuery).toHaveBeenCalledTimes(1)
   })
 
+  it("throws when migration row is not in table", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000_first_migration.sql": "migration1",
+      },
+    })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Acquire lock
+      .mockResolvedValueOnce({
+        rows: [{ acquired: true }],
+        rowCount: 0,
+      } as QueryResult)
+      // Select existing digest
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await expect(
+      overwriteDatabaseMd5(
+        client,
+        path.join(
+          process.cwd(),
+          "migrations",
+          "20200101000000_first_migration.sql",
+        ),
+      ),
+    ).rejects.toThrow(
+      "No migration with filename 20200101000000_first_migration.sql exists in the database, cannot overwrite MD5 digest",
+    )
+
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+  })
+
   it("updates database md5 to match file md5", async () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {
@@ -759,6 +798,10 @@ describe("overwriteDatabaseMd5()", () => {
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Select existing digest
+      .mockResolvedValueOnce({
+        rows: [{ md5: "7efb2a07775469cb63c3b4b2d8302e8f" }],
+      } as QueryResult)
       // Update md5
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Release lock
@@ -773,17 +816,51 @@ describe("overwriteDatabaseMd5()", () => {
       ),
     )
 
-    expect(mockQuery).toHaveBeenCalledTimes(4)
-    expect(mockQuery.mock.calls[2]).toStrictEqual([
+    expect(mockQuery).toHaveBeenCalledTimes(5)
+    expect(mockQuery.mock.calls[3]).toStrictEqual([
       `update public."migrations" set
         md5 = $2
       where
-        filename = $1
-        and md5 != $2`,
+        filename = $1`,
       [
         "20200101000000_first_migration.sql",
         "7efb2a07775469cb63c3b4b2d8302e8e",
       ],
     ])
+  })
+
+  it("does not update database md5 when digests already match", async () => {
+    mockFs({
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000_first_migration.sql": "migration1",
+      },
+    })
+
+    const client = new Client()
+    const mockQuery = (
+      vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
+    )
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Select existing digest
+      .mockResolvedValueOnce({
+        rows: [{ md5: "7efb2a07775469cb63c3b4b2d8302e8e" }],
+      } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await overwriteDatabaseMd5(
+      client,
+      path.join(
+        process.cwd(),
+        "migrations",
+        "20200101000000_first_migration.sql",
+      ),
+    )
+
+    // If it was called 4 times, then no update command was sent.
+    expect(mockQuery).toHaveBeenCalledTimes(4)
   })
 })

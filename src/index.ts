@@ -581,17 +581,39 @@ export const overwriteDatabaseMd5 = async (
 
   await acquireLock(client)
   try {
+    const migrationFilename = path.basename(migrationFilePath)
     const digest = await getDigestFromFile(migrationFilePath)
     const escapedMigrationTableName =
       client.escapeIdentifier(migrationTableName)
+
+    const existingDigest = await client.query<{ md5: string }>(
+      `select md5 from public.${escapedMigrationTableName} where filename = $1;`,
+      [migrationFilename],
+    )
+
+    if (!existingDigest.rows.length) {
+      throw new Error(
+        `No migration with filename ${migrationFilename} exists in the database, cannot overwrite MD5 digest`,
+      )
+    }
+
+    if (existingDigest.rows[0].md5 === digest) {
+      console.log(
+        `The migration ${migrationFilename} already has the same MD5 digest in the database as the migration file, no need to overwrite`,
+      )
+      return
+    }
 
     await client.query(
       `update public.${escapedMigrationTableName} set
         md5 = $2
       where
-        filename = $1
-        and md5 != $2`,
-      [path.basename(migrationFilePath), digest],
+        filename = $1`,
+      [migrationFilename, digest],
+    )
+
+    console.log(
+      `Updated MD5 digest for migration ${migrationFilename} in database - was ${existingDigest.rows[0].md5}, is now ${digest}`,
     )
   } finally {
     try {
