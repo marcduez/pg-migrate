@@ -52,7 +52,7 @@ const getClient = ({
 
 yargs(hideBin(process.argv))
   .usage("Usage: $0 <command> [options]")
-  .showHelpOnFail(true)
+  .showHelpOnFail(false)
 
   // Create migration
   .command<{ migrationName: string; migrationDir: string }>({
