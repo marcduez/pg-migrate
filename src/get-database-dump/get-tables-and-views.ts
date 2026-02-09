@@ -1,4 +1,4 @@
-import type { Client } from "pg"
+import { escapeLiteral, type Client } from "pg"
 
 export const getTablesAndViews = async (client: Client) => {
   const { rows: columnRows } = await client.query<{
@@ -85,7 +85,7 @@ export const getTablesAndViews = async (client: Client) => {
       const columnLine = `${column_name} ${column_type}${defaultClause}${notNullClause}`
 
       const escapedComment = column_comment
-        ? client.escapeLiteral(column_comment)
+        ? escapeLiteral(column_comment)
         : null
       const commentLine = escapedComment
         ? `COMMENT ON COLUMN ${tableWithSchema}.${column_name} IS ${escapedComment};`

@@ -2,7 +2,7 @@ import { exec } from "child_process"
 import crypto from "crypto"
 import fs from "fs"
 import path from "path"
-import { Client, ClientBase } from "pg"
+import { Client, ClientBase, escapeIdentifier, escapeLiteral } from "pg"
 import readline from "readline"
 
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
@@ -33,7 +33,7 @@ const createMigrationTableIfNotExists = async (
   client: ClientBase,
   tableName: string,
 ) => {
-  const escapedTableName = client.escapeIdentifier(tableName)
+  const escapedTableName = escapeIdentifier(tableName)
   const command = `create table if not exists public.${escapedTableName} (
     filename text collate "C" not null primary key
     , md5 char(32) not null
@@ -47,7 +47,7 @@ const dropMigrationTableIfExists = async (
   client: ClientBase,
   tableName: string,
 ) => {
-  const escapedTableName = client.escapeIdentifier(tableName)
+  const escapedTableName = escapeIdentifier(tableName)
   const command = `drop table if exists public.${escapedTableName};`
   await client.query(command)
   return command
@@ -60,7 +60,7 @@ const getDigestsFromDatabase = async (
   if (!(await migrationTableExists(client, tableName))) {
     return new Map<string, string>()
   }
-  const escapedTableName = client.escapeIdentifier(tableName)
+  const escapedTableName = escapeIdentifier(tableName)
   const command = `select filename, md5 from public.${escapedTableName} order by filename;`
   return new Map<string, string>(
     (await client.query<{ filename: string; md5: string }>(command)).rows.map(
@@ -131,11 +131,11 @@ const insertMigration = async (
   md5: string,
   appliedAtUtc?: Date,
 ) => {
-  const escapedTableName = client.escapeIdentifier(tableName)
-  const escapedFilename = client.escapeLiteral(filename)
-  const escapedMd5 = client.escapeLiteral(md5)
+  const escapedTableName = escapeIdentifier(tableName)
+  const escapedFilename = escapeLiteral(filename)
+  const escapedMd5 = escapeLiteral(md5)
   const escapedAppliedAtUtc = appliedAtUtc
-    ? client.escapeLiteral(appliedAtUtc.toISOString())
+    ? escapeLiteral(appliedAtUtc.toISOString())
     : "default"
   const command = `insert into public.${escapedTableName} (filename, md5, applied_at_utc) values (${escapedFilename}, ${escapedMd5}, ${escapedAppliedAtUtc});`
   await client.query(command)
@@ -484,8 +484,7 @@ export const migrateV2ToV3 = async (
       const newMigrationFilenamesByOldFilename = new Map<string, string>()
 
       // Read all existing migration rows from database
-      const escapedMigrationTableName =
-        client.escapeIdentifier(migrationTableName)
+      const escapedMigrationTableName = escapeIdentifier(migrationTableName)
       const { rows: existingMigrationRows } = await client.query<{
         version: number
         md5: string
@@ -606,8 +605,7 @@ export const overwriteDatabaseMd5 = async (
   try {
     const migrationFilename = path.basename(migrationFilePath)
     const digest = await getDigestFromFile(migrationFilePath)
-    const escapedMigrationTableName =
-      client.escapeIdentifier(migrationTableName)
+    const escapedMigrationTableName = escapeIdentifier(migrationTableName)
 
     const existingDigest = await client.query<{ md5: string }>(
       `select md5 from public.${escapedMigrationTableName} where filename = $1;`,
