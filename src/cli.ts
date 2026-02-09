@@ -192,7 +192,7 @@ yargs(hideBin(process.argv))
     },
   })
 
-  // Migrate database
+  // Migrate from v2 to v3
   .command<{
     migrationDir: string
     migrationTable: string
