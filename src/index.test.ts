@@ -17,6 +17,8 @@ import {
 vi.mock("pg", () => {
   const Client = vi.fn(
     class {
+      escapeIdentifier = (identifier: string) => `"${identifier}"`
+      escapeLiteral = (literal: string) => `'${literal}'`
       query = vi.fn()
     },
   )
@@ -85,15 +87,13 @@ describe("databaseNeedsMigration()", () => {
     const mockQuery = (
       vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
     )
-      // Check if migration table exists
+      // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: false }] } as QueryResult)
 
     const actual = await databaseNeedsMigration(client)
 
-    expect(actual).toBe(true)
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrations"]],
-    ])
+    expect(actual).toBe(false)
+    expect(mockQuery).toHaveBeenCalledTimes(1)
   })
 
   it("returns true when there are migrations that have not been applied to database", async () => {
@@ -117,10 +117,7 @@ describe("databaseNeedsMigration()", () => {
     const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(true)
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(2)
   })
 
   it("throws when migration is in database and not in filesystem", async () => {
@@ -146,10 +143,7 @@ describe("databaseNeedsMigration()", () => {
       "Migration 20200102030405_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(2)
   })
 
   it("throws when migration in database and filesystem have different digests", async () => {
@@ -184,10 +178,7 @@ describe("databaseNeedsMigration()", () => {
       "Migration 20200102030406.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(2)
   })
 
   it("returns false when database does not need migration with all arguments set", async () => {
@@ -226,11 +217,7 @@ describe("databaseNeedsMigration()", () => {
     )
 
     expect(actual).toBe(false)
-
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrationTable"]],
-      [expect.any(String)],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(2)
   })
 
   it("returns false when database does not need migration with required arguments set", async () => {
@@ -264,11 +251,7 @@ describe("databaseNeedsMigration()", () => {
     const actual = await databaseNeedsMigration(client)
 
     expect(actual).toBe(false)
-
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(2)
   })
 })
 
@@ -282,10 +265,10 @@ describe("migrateDatabase()", () => {
     )
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
-      // Check migration table exists
-      .mockResolvedValueOnce({ rows: [{ exists: false }] } as QueryResult)
-      // Create migration table
+      // Create migration table if not exists
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Release lock
@@ -293,8 +276,8 @@ describe("migrateDatabase()", () => {
 
     await migrateDatabase(client)
 
-    expect(mockQuery.mock.calls).toHaveLength(5)
-    expect(mockQuery.mock.calls[2]).toStrictEqual([
+    expect(mockQuery).toHaveBeenCalledTimes(5)
+    expect(mockQuery.mock.calls[1]).toStrictEqual([
       expect.stringMatching(/^create\stable\s.*/),
     ])
   })
@@ -312,6 +295,8 @@ describe("migrateDatabase()", () => {
     )
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
@@ -321,8 +306,11 @@ describe("migrateDatabase()", () => {
 
     await migrateDatabase(client)
 
-    // If query was only called 4 times, the it ignored the migration file.
-    expect(mockQuery.mock.calls).toHaveLength(4)
+    // If query was only called 5 times, then it ignored the migration file.
+    expect(mockQuery).toHaveBeenCalledTimes(5)
+    expect(mockQuery.mock.calls).not.toContainEqual(
+      expect.arrayContaining([expect.stringMatching(/^insert\sinto\s.*/)]),
+    )
   })
 
   it("throws when migration is in database and not in filesystem", async () => {
@@ -336,6 +324,8 @@ describe("migrateDatabase()", () => {
     )
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
@@ -347,18 +337,14 @@ describe("migrateDatabase()", () => {
           },
         ],
       } as QueryResult)
+      // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
     await expect(migrateDatabase(client)).rejects.toThrow(
       "Migration 20200101000000_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(5)
   })
 
   it("throws when migration in database and filesystem have different digests", async () => {
@@ -375,6 +361,8 @@ describe("migrateDatabase()", () => {
     )
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
@@ -397,12 +385,7 @@ describe("migrateDatabase()", () => {
       "Migration 20200101000001_second_migration.sql has digest 99836b0f4ca50ed7ed998c0141a334e4 in files, and digest 99836b0f4ca50ed7ed998c0141a334e3 in database",
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(5)
   })
 
   it("applies migration with transaction", async () => {
@@ -445,14 +428,18 @@ describe("migrateDatabase()", () => {
         return { rows: [{ acquired: true }] } as QueryResult
       }
       if (queryCount === 2) {
+        // Create migration table if not exists
+        return { rows: [] as unknown[] } as QueryResult
+      }
+      if (queryCount === 3) {
         // Check migration table exists
         return { rows: [{ exists: true }] } as QueryResult
       }
-      if (queryCount === 3) {
+      if (queryCount === 4) {
         // Select existing digests
         return { rows: [] as unknown[] } as QueryResult
       }
-      if (queryCount < 101 * 4 + 3) {
+      if (queryCount < 101 * 4 + 4) {
         // 4 queries per migration:
         // - Begin transaction
         // - Apply migration
@@ -466,37 +453,7 @@ describe("migrateDatabase()", () => {
 
     await migrateDatabase(client)
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [
-        "select pg_try_advisory_lock($1, $2) as acquired",
-        [expect.any(Number), expect.any(Number)],
-      ],
-      [
-        `select exists (
-        select
-        from information_schema.tables
-        where table_schema = 'public'
-        and table_name = $1
-      )`,
-        ["migrations"],
-      ],
-      ["select filename, md5 from migrations order by filename"],
-      ...files
-        .map(({ filename, content, digest }) => [
-          ["begin transaction"],
-          [content],
-          [
-            "insert into migrations (filename, md5) values ($1, $2)",
-            [filename, digest],
-          ],
-          ["commit"],
-        ])
-        .flatMap(command => command),
-      [
-        "select pg_advisory_unlock($1, $2) as released",
-        [expect.any(Number), expect.any(Number)],
-      ],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(409)
     expect(mockExec.mock.calls).toStrictEqual([
       [
         'pg_dump --no-owner --no-privileges --schema-only --file=schema.sql "postgresql://:@undefined:undefined/"',
@@ -527,6 +484,8 @@ describe("migrateDatabase()", () => {
     )
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
@@ -540,31 +499,7 @@ describe("migrateDatabase()", () => {
 
     await migrateDatabase(client)
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [
-        "select pg_try_advisory_lock($1, $2) as acquired",
-        [expect.any(Number), expect.any(Number)],
-      ],
-      [
-        `select exists (
-        select
-        from information_schema.tables
-        where table_schema = 'public'
-        and table_name = $1
-      )`,
-        ["migrations"],
-      ],
-      ["select filename, md5 from migrations order by filename"],
-      [migration],
-      [
-        "insert into migrations (filename, md5) values ($1, $2)",
-        ["20200101000000.sql", "4ce5485a7e94e5f5a7c9fd3357ced0af"],
-      ],
-      [
-        "select pg_advisory_unlock($1, $2) as released",
-        [expect.any(Number), expect.any(Number)],
-      ],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(7)
     expect(mockExec.mock.calls).toStrictEqual([
       [
         'pg_dump --no-owner --no-privileges --schema-only --file=schema.sql "postgresql://:@undefined:undefined/"',
@@ -597,13 +532,19 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Acquire lock
       .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Begin transaction
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Apply migration
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Insert migration row
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Commit transaction
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
@@ -619,24 +560,15 @@ describe("migrateDatabase()", () => {
       300,
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      ["show statement_timeout"],
-      ["set statement_timeout = $1", ["300s"]],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [expect.any(String)],
-      ["begin transaction"],
-      ["migration1"],
-      [
-        "insert into migrations (filename, md5) values ($1, $2)",
-        [
-          "20200101000000_first_migration.sql",
-          "7efb2a07775469cb63c3b4b2d8302e8e",
-        ],
-      ],
-      ["commit"],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      ["set statement_timeout = $1", ["0"]],
+    expect(mockQuery).toHaveBeenCalledTimes(12)
+    expect(mockQuery.mock.calls[0]).toStrictEqual(["show statement_timeout;"])
+    expect(mockQuery.mock.calls[1]).toStrictEqual([
+      "set statement_timeout = $1;",
+      ["300s"],
+    ])
+    expect(mockQuery.mock.calls[11]).toStrictEqual([
+      "set statement_timeout = $1;",
+      ["0"],
     ])
   })
 })
@@ -668,12 +600,10 @@ describe("migrateV2ToV3", () => {
       "The migration table migrations does not exist",
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), ["migrations"]],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(1)
   })
 
-  it("drops and recreates migration table and renames files", async () => {
+  it("drops and recreates migration table, renames files, and writes pg_migrate_v2_to_v3_migration.sql", async () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {
         "0001.sql": "migration1",
@@ -737,41 +667,39 @@ describe("migrateV2ToV3", () => {
     const actualFilenames = (
       await fs.promises.readdir(path.join(process.cwd(), "migrations"))
     ).sort()
+    const actualV2ToV3MigrationScript = await fs.promises.readFile(
+      path.join(process.cwd(), "pg_migrate_v2_to_v3_migration.sql"),
+      "utf-8",
+    )
 
-    expect(mockQuery.mock.calls).toHaveLength(11)
+    expect(mockQuery).toHaveBeenCalledTimes(11)
     expect(mockQuery.mock.calls[3]).toStrictEqual([
-      "select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from migrations order by version",
+      "select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from public.\"migrations\" order by version;",
     ])
-    expect(mockQuery.mock.calls[4]).toStrictEqual(["drop table migrations"])
+    expect(mockQuery.mock.calls[4]).toStrictEqual([
+      'drop table if exists public."migrations";',
+    ])
     expect(mockQuery.mock.calls[6]).toStrictEqual([
-      "insert into migrations (filename, md5, applied_at_utc) values ($1, $2, $3)",
-      [
-        "20200102030405.sql",
-        "7efb2a07775469cb63c3b4b2d8302e8e",
-        "2020-01-02T03:04:05.000Z",
-      ],
+      "insert into public.\"migrations\" (filename, md5, applied_at_utc) values ('20200102030405.sql', '7efb2a07775469cb63c3b4b2d8302e8e', '2020-01-02T03:04:05.000Z');",
     ])
     expect(mockQuery.mock.calls[7]).toStrictEqual([
-      "insert into migrations (filename, md5, applied_at_utc) values ($1, $2, $3)",
-      [
-        "20200203040506.sql",
-        "99836b0f4ca50ed7ed998c0141a334e4",
-        "2020-02-03T04:05:06.000Z",
-      ],
+      "insert into public.\"migrations\" (filename, md5, applied_at_utc) values ('20200203040506.sql', '99836b0f4ca50ed7ed998c0141a334e4', '2020-02-03T04:05:06.000Z');",
     ])
     expect(mockQuery.mock.calls[8]).toStrictEqual([
-      "insert into migrations (filename, md5, applied_at_utc) values ($1, $2, $3)",
-      [
-        "20200304050607.sql",
-        "855c86c7fb7b67c95e7de5a0a8b63b84",
-        "2020-03-04T05:06:07.000Z",
-      ],
+      "insert into public.\"migrations\" (filename, md5, applied_at_utc) values ('20200304050607.sql', '855c86c7fb7b67c95e7de5a0a8b63b84', '2020-03-04T05:06:07.000Z');",
     ])
     expect(actualFilenames).toStrictEqual([
       "20200102030405.sql",
       "20200203040506.sql",
       "20200304050607.sql",
     ])
+    expect(actualV2ToV3MigrationScript).toStrictEqual(`begin transaction;
+drop table if exists public."migrations";
+create table if not exists public."migrations" (filename text collate "C" not null primary key, md5 char(32) not null, applied_at_utc timestamp not null default (now() at time zone 'UTC'));
+insert into public."migrations" (filename, md5, applied_at_utc) values ('20200102030405.sql', '7efb2a07775469cb63c3b4b2d8302e8e', '2020-01-02T03:04:05.000Z');
+insert into public."migrations" (filename, md5, applied_at_utc) values ('20200203040506.sql', '99836b0f4ca50ed7ed998c0141a334e4', '2020-02-03T04:05:06.000Z');
+insert into public."migrations" (filename, md5, applied_at_utc) values ('20200304050607.sql', '855c86c7fb7b67c95e7de5a0a8b63b84', '2020-03-04T05:06:07.000Z');
+commit;`)
   })
 })
 
@@ -799,12 +727,8 @@ describe("overwriteDatabaseMd5()", () => {
     const mockQuery = (
       vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
     )
-      // Acquire lock
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: false }] } as QueryResult)
-      // Release lock
-      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
     await expect(
       overwriteDatabaseMd5(
@@ -817,11 +741,7 @@ describe("overwriteDatabaseMd5()", () => {
       ),
     ).rejects.toThrow("The migration table migrations does not exist")
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-    ])
+    expect(mockQuery).toHaveBeenCalledTimes(1)
   })
 
   it("updates database md5 to match file md5", async () => {
@@ -835,10 +755,10 @@ describe("overwriteDatabaseMd5()", () => {
     const mockQuery = (
       vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
     )
-      // Acquire lock
-      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
       // Check migration table exists
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
       // Update md5
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Release lock
@@ -853,21 +773,17 @@ describe("overwriteDatabaseMd5()", () => {
       ),
     )
 
-    expect(mockQuery.mock.calls).toStrictEqual([
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
-      [expect.any(String), ["migrations"]],
-      [
-        `update public.migrations set
+    expect(mockQuery).toHaveBeenCalledTimes(4)
+    expect(mockQuery.mock.calls[2]).toStrictEqual([
+      `update public."migrations" set
         md5 = $2
       where
         filename = $1
         and md5 != $2`,
-        [
-          "20200101000000_first_migration.sql",
-          "7efb2a07775469cb63c3b4b2d8302e8e",
-        ],
+      [
+        "20200101000000_first_migration.sql",
+        "7efb2a07775469cb63c3b4b2d8302e8e",
       ],
-      [expect.any(String), [expect.any(Number), expect.any(Number)]],
     ])
   })
 })

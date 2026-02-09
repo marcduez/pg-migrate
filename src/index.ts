@@ -21,30 +21,50 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
         select
         from information_schema.tables
         where table_schema = 'public'
-        and table_name = $1
-      )`,
-      [tableName],
+        and table_name = ${client.escapeIdentifier(tableName)}
+      );`,
     )
   ).rows[0].exists
 
-const createMigrationTable = async (client: ClientBase, tableName: string) => {
-  await client.query(
-    `create table public.${tableName} (
-      filename text collate "C" not null primary key
-      , md5 char(32) not null
-      , applied_at_utc timestamp not null default (now() at time zone 'UTC')
-    )`,
-  )
+const createMigrationTableIfNotExists = async (
+  client: ClientBase,
+  tableName: string,
+) => {
+  const escapedTableName = client.escapeIdentifier(tableName)
+  const command = `create table if not exists public.${escapedTableName} (
+    filename text collate "C" not null primary key
+    , md5 char(32) not null
+    , applied_at_utc timestamp not null default (now() at time zone 'UTC')
+  );`
+  await client.query(command)
+  return command
 }
 
-const getDigestsFromDatabase = async (client: ClientBase, tableName: string) =>
-  new Map<string, string>(
-    (
-      await client.query<{ filename: string; md5: string }>(
-        `select filename, md5 from ${tableName} order by filename`,
-      )
-    ).rows.map(row => [row.filename, row.md5]),
+const dropMigrationTableIfExists = async (
+  client: ClientBase,
+  tableName: string,
+) => {
+  const escapedTableName = client.escapeIdentifier(tableName)
+  const command = `drop table if exists public.${escapedTableName};`
+  await client.query(command)
+  return command
+}
+
+const getDigestsFromDatabase = async (
+  client: ClientBase,
+  tableName: string,
+) => {
+  if (!(await migrationTableExists(client, tableName))) {
+    return new Map<string, string>()
+  }
+  const escapedTableName = client.escapeIdentifier(tableName)
+  const command = `select filename, md5 from public.${escapedTableName} order by filename;`
+  return new Map<string, string>(
+    (await client.query<{ filename: string; md5: string }>(command)).rows.map(
+      row => [row.filename, row.md5],
+    ),
   )
+}
 
 const getDigestFromFile = async (filePath: string) => {
   const hash = crypto.createHash("md5").setEncoding("hex")
@@ -108,17 +128,15 @@ const insertMigration = async (
   md5: string,
   appliedAtUtc?: Date,
 ) => {
-  if (appliedAtUtc) {
-    await client.query(
-      `insert into ${tableName} (filename, md5, applied_at_utc) values ($1, $2, $3)`,
-      [filename, md5, appliedAtUtc.toISOString()],
-    )
-  } else {
-    await client.query(
-      `insert into ${tableName} (filename, md5) values ($1, $2)`,
-      [filename, md5],
-    )
-  }
+  const escapedTableName = client.escapeIdentifier(tableName)
+  const escapedFilename = client.escapeLiteral(filename)
+  const escapedMd5 = client.escapeLiteral(md5)
+  const escapedAppliedAtUtc = appliedAtUtc
+    ? client.escapeLiteral(appliedAtUtc.toISOString())
+    : "default"
+  const command = `insert into public.${escapedTableName} (filename, md5, applied_at_utc) values (${escapedFilename}, ${escapedMd5}, ${escapedAppliedAtUtc});`
+  await client.query(command)
+  return command
 }
 
 const acquireLock = async (client: ClientBase): Promise<void> => {
@@ -127,7 +145,7 @@ const acquireLock = async (client: ClientBase): Promise<void> => {
     const {
       rows: [acquired],
     } = await client.query<{ acquired: boolean }>(
-      `select pg_try_advisory_lock($1, $2) as acquired`,
+      `select pg_try_advisory_lock($1, $2) as acquired;`,
       [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
     )
     if (acquired) {
@@ -146,7 +164,7 @@ const releaseLock = async (client: ClientBase): Promise<void> => {
   const {
     rows: [released],
   } = await client.query<{ released: boolean }>(
-    `select pg_advisory_unlock($1, $2) as released`,
+    `select pg_advisory_unlock($1, $2) as released;`,
     [MIGRATION_LOCK_ID1, MIGRATION_LOCK_ID2],
   )
 
@@ -278,10 +296,6 @@ export const databaseNeedsMigration = async (
     debug: (message: unknown) => console.debug(message),
   },
 ) => {
-  if (!(await migrationTableExists(client, migrationTableName))) {
-    return true
-  }
-
   const digestsFromDatabase = await getDigestsFromDatabase(
     client,
     migrationTableName,
@@ -322,19 +336,17 @@ export const migrateDatabase = async (
   if (statementTimeoutSeconds !== undefined) {
     currentStatementTimeout = (
       await client.query<{ statement_timeout: string }>(
-        "show statement_timeout",
+        "show statement_timeout;",
       )
     ).rows[0].statement_timeout
-    await client.query("set statement_timeout = $1", [
+    await client.query("set statement_timeout = $1;", [
       `${statementTimeoutSeconds}s`,
     ])
   }
 
   await acquireLock(client)
   try {
-    if (!(await migrationTableExists(client, migrationTableName))) {
-      await createMigrationTable(client, migrationTableName)
-    }
+    await createMigrationTableIfNotExists(client, migrationTableName)
 
     const digestsFromDatabase = await getDigestsFromDatabase(
       client,
@@ -365,27 +377,29 @@ export const migrateDatabase = async (
       const inTransaction = await shouldCreateTransactionForFile(filePath)
 
       if (inTransaction) {
-        await client.query("begin transaction")
+        await client.query("begin transaction;")
       } else {
         log.info(`Skipping transaction for ${filename}`)
       }
       try {
-        const sql = (await fs.promises.readFile(filePath, "utf8")).trim()
-        if (!sql) {
+        const migrationSql = (
+          await fs.promises.readFile(filePath, "utf8")
+        ).trim()
+        if (!migrationSql) {
           throw new Error(`File ${filename} is empty`)
         }
-        await client.query(sql)
+        await client.query(migrationSql)
         await insertMigration(client, migrationTableName, filename, digest)
 
         if (inTransaction) {
-          await client.query("commit")
+          await client.query("commit;")
         }
 
         log.info(`Applied migration`)
       } catch (migrationError) {
         if (inTransaction) {
           try {
-            await client.query("rollback")
+            await client.query("rollback;")
           } catch (rollbackError) {
             log.error(rollbackError)
           }
@@ -406,7 +420,7 @@ export const migrateDatabase = async (
 
   // If we set aside a statement_timeout, restore it.
   if (currentStatementTimeout !== null) {
-    await client.query("set statement_timeout = $1", [currentStatementTimeout])
+    await client.query("set statement_timeout = $1;", [currentStatementTimeout])
   }
 }
 
@@ -436,48 +450,61 @@ export const migrateV2ToV3 = async (
     throw new Error(`The migration table ${migrationTableName} does not exist`)
   }
 
-  console.log("acquiring lock")
+  const scriptLines: string[] = []
+
   await acquireLock(client)
   try {
-    console.log("beginning transaction")
-    await client.query("begin transaction")
+    const beginTransactionCommand = "begin transaction;"
+    await client.query(beginTransactionCommand)
+    scriptLines.push(beginTransactionCommand)
 
     try {
+      const newFilenames = new Set<string>()
       const newMigrationFilenamesByOldFilename = new Map<string, string>()
 
       // Read all existing migration rows from database
-      console.log("selecting migrations")
+      const escapedMigrationTableName =
+        client.escapeIdentifier(migrationTableName)
       const { rows: existingMigrationRows } = await client.query<{
         version: number
         md5: string
         applied_at: string
       }>(
-        `select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from ${migrationTableName} order by version`,
+        `select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from public.${escapedMigrationTableName} order by version;`,
       )
 
       // Drop existing migration table
-      console.log("dropping migration table")
-      await client.query(`drop table ${migrationTableName}`)
+      scriptLines.push(
+        await dropMigrationTableIfExists(client, migrationTableName),
+      )
 
       // Create new migration table
-      console.log("creating migration table")
-      await createMigrationTable(client, migrationTableName)
+      scriptLines.push(
+        await createMigrationTableIfNotExists(client, migrationTableName),
+      )
 
       // For each existing migration row, insert a row in the new table, and set aside a mapping from the old filename to the new filename
       for (const row of existingMigrationRows) {
         const appliedAt = new Date(row.applied_at)
         const oldFilename = `${row.version.toString().padStart(4, "0")}.sql`
-        const newFilename = `${getTimestampString(appliedAt)}.sql`
-
+        // If migration filenames collide, increment the timestamp by 1 second until they don't.
+        let newFilenameTimestamp = appliedAt
+        let newFilename = `${getTimestampString(newFilenameTimestamp)}.sql`
+        while (newFilenames.has(newFilename)) {
+          newFilenameTimestamp = new Date(newFilenameTimestamp.getTime() + 1000)
+          newFilename = `${getTimestampString(newFilenameTimestamp)}.sql`
+        }
+        newFilenames.add(newFilename)
         newMigrationFilenamesByOldFilename.set(oldFilename, newFilename)
 
-        console.log("inserting migration")
-        await insertMigration(
-          client,
-          migrationTableName,
-          newFilename,
-          row.md5,
-          appliedAt,
+        scriptLines.push(
+          await insertMigration(
+            client,
+            migrationTableName,
+            newFilename,
+            row.md5,
+            appliedAt,
+          ),
         )
       }
 
@@ -493,14 +520,22 @@ export const migrateV2ToV3 = async (
       }
 
       // Commit the changes to the database
-      console.log("committing transaction")
-      await client.query("commit")
+      const commitTransactionCommand = "commit;"
+      await client.query(commitTransactionCommand)
+      scriptLines.push(commitTransactionCommand)
 
       // Write the new database schema to file
       await updateSchemaFile(pgDumpPath, schemaFile, client, log)
+
+      // Write script to migration migration table to file.
+      fs.writeFileSync(
+        path.join(process.cwd(), "pg_migrate_v2_to_v3_migration.sql"),
+        scriptLines.map(command => command.replace(/\n\s+/g, "")).join("\n"),
+        // scriptLines.join("\n"),
+        "utf-8",
+      )
     } catch (transactionError) {
       try {
-        console.log("rolling back transaction")
         await client.query("rollback")
       } catch (rollbackError) {
         log.error(rollbackError)
@@ -509,7 +544,6 @@ export const migrateV2ToV3 = async (
     }
   } finally {
     try {
-      console.log("releasing lock")
       await releaseLock(client)
     } catch (e) {
       log.error(e)
@@ -532,18 +566,18 @@ export const overwriteDatabaseMd5 = async (
     throw new Error(`The file ${migrationFilePath} does not exist`)
   }
 
+  if (!(await migrationTableExists(client, migrationTableName))) {
+    throw new Error(`The migration table ${migrationTableName} does not exist`)
+  }
+
   await acquireLock(client)
   try {
-    if (!(await migrationTableExists(client, migrationTableName))) {
-      throw new Error(
-        `The migration table ${migrationTableName} does not exist`,
-      )
-    }
-
     const digest = await getDigestFromFile(migrationFilePath)
+    const escapedMigrationTableName =
+      client.escapeIdentifier(migrationTableName)
 
     await client.query(
-      `update public.${migrationTableName} set
+      `update public.${escapedMigrationTableName} set
         md5 = $2
       where
         filename = $1
