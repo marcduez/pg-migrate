@@ -276,13 +276,11 @@ yargs(hideBin(process.argv))
       const isFullyMigrated = await confirm({
         default: false,
         message:
-          "Do not run this command until your database is fully migrated. Is it fully migrated?",
+          "WARNING: This script will drop and recreate the migrations table and rename your migration files. You should run this after you have migrated your database to latest. Proceed?",
       })
 
       if (!isFullyMigrated) {
-        console.log(
-          "Aborting migration because the database is not fully migrated",
-        )
+        console.log("Aborting")
         return
       }
 
