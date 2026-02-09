@@ -21,8 +21,9 @@ const migrationTableExists = async (client: ClientBase, tableName: string) =>
         select
         from information_schema.tables
         where table_schema = 'public'
-        and table_name = ${client.escapeIdentifier(tableName)}
+        and table_name = $1
       );`,
+      [tableName],
     )
   ).rows[0].exists
 
@@ -473,6 +474,8 @@ export const migrateV2ToV3 = async (
         `select version, md5, to_json(applied_at_utc at time zone 'UTC') as applied_at from public.${escapedMigrationTableName} order by version;`,
       )
 
+      console.log("Dropping and recreating migration table...")
+
       // Drop existing migration table
       scriptLines.push(
         await dropMigrationTableIfExists(client, migrationTableName),
@@ -508,6 +511,10 @@ export const migrateV2ToV3 = async (
         )
       }
 
+      console.log("Recreated migration table")
+
+      console.log("Renaming migration files...")
+
       // For every old-filename-to-new-filename mapping, rename the migration file on disk
       for (const [
         oldFilename,
@@ -518,6 +525,8 @@ export const migrateV2ToV3 = async (
           path.join(migrationDir, newFilename),
         )
       }
+
+      console.log("Renamed migration files")
 
       // Commit the changes to the database
       const commitTransactionCommand = "commit;"
