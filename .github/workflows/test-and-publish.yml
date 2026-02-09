@@ -10,21 +10,29 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      - uses: actions/setup-node@v2
+      - uses: actions/setup-node@v4
         with:
-          node-version: "18.x"
+          node-version: "24"
+          package-manager-cache: false
+
+      - name: Enable Corepack and set Yarn version
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          # Re-uses Node version from above.
           cache: "yarn"
 
       - name: Install dependencies
-        run: yarn install --frozen-lockfile
+        run: yarn install --immutable
 
       - name: Lint
         run: yarn lint
 
       - name: Run tests
-        run: yarn test --ci
+        run: yarn test
 
       - name: Build
         run: yarn build
