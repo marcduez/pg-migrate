@@ -9,6 +9,9 @@ jobs:
   default:
     runs-on: ubuntu-latest
     environment: production
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - uses: actions/checkout@v4
@@ -38,10 +41,9 @@ jobs:
       - name: Build
         run: yarn build
 
-      - uses: JS-DevTools/npm-publish@v1
+      - uses: JS-DevTools/npm-publish@v4
         id: npm_publish
         with:
-          token: ${{ secrets.NPM_TOKEN }}
           access: public
           package: dist/package.json
 
