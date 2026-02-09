@@ -86,6 +86,7 @@ yargs(hideBin(process.argv))
     migrationTable: string
     pgDumpPath: string
     schemaFile: string
+    throwOnChangedSchema: boolean
     timeoutSeconds?: number
     host?: string
     port?: number
@@ -118,6 +119,12 @@ yargs(hideBin(process.argv))
         default: "schema.sql",
         describe:
           "File that the database schema will be written to after applying migrations (set to empty string to skip writing schema)",
+      },
+      "throw-on-changed-schema": {
+        alias: "c",
+        default: false,
+        describe:
+          "If set, pg-migrate will throw an error if it detects that the database schema was changed by applying migrations",
       },
       "timeout-seconds": {
         alias: "T",
@@ -159,6 +166,7 @@ yargs(hideBin(process.argv))
       migrationTable,
       pgDumpPath,
       schemaFile,
+      throwOnChangedSchema,
       timeoutSeconds,
       host,
       port,
@@ -184,6 +192,7 @@ yargs(hideBin(process.argv))
           migrationTable,
           pgDumpPath,
           schemaFile,
+          throwOnChangedSchema,
           timeoutSeconds,
         )
       } finally {

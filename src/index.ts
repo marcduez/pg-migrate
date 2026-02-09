@@ -11,6 +11,8 @@ const MIGRATION_LOCK_ID2 = 1012360337
 const MIGRATION_TABLE_NAME = "migrations"
 const MIGRATION_FILE_PATTERN = /^\d{14}(_.*)?\.sql$/i
 const SCHEMA_FILE = "schema.sql"
+const PG_DUMP_RESTRICT_KEY =
+  "a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214"
 // The time to wait between each attempt to acquire a database lock.
 const ACQUIRE_LOCK_BACK_OFFS_MS = [200, 500, 1000]
 
@@ -224,16 +226,20 @@ const getConnectionString = (client: Client) => {
 
 const updateSchemaFile = async (
   pgDumpPath: string,
-  schemaFile: string,
+  schemaFilePath: string,
   client: Client,
+  throwOnChangedSchema = false,
   log: { error: (message: unknown) => void; info: (message: unknown) => void },
 ) => {
-  if (!!pgDumpPath && !!schemaFile) {
-    log.info(`Updating schema file ${schemaFile}...`)
+  if (!!pgDumpPath && !!schemaFilePath) {
+    log.info(`Updating schema file ${schemaFilePath}...`)
+    const schemaDigestBefore = fs.existsSync(schemaFilePath)
+      ? await getDigestFromFile(schemaFilePath)
+      : ""
     const connectionString = getConnectionString(client)
     await new Promise<void>((resolve, reject) => {
       exec(
-        `${pgDumpPath} --no-owner --no-privileges --schema-only --file=${schemaFile} "${connectionString}"`,
+        `${pgDumpPath} --no-owner --no-privileges --schema-only --restrict-key=${PG_DUMP_RESTRICT_KEY} --file=${schemaFilePath} "${connectionString}"`,
         (error, stdout, stderr) => {
           if (error) {
             reject(error)
@@ -249,6 +255,10 @@ const updateSchemaFile = async (
         },
       )
     })
+    const schemaDigestAfter = await getDigestFromFile(schemaFilePath)
+    if (throwOnChangedSchema && schemaDigestBefore !== schemaDigestAfter) {
+      throw new Error("Database schema was expectedly changed by migrations!")
+    }
     log.info("Updated schema file")
   } else {
     log.info(`Not updating schema file`)
@@ -325,6 +335,7 @@ export const migrateDatabase = async (
   migrationTableName = MIGRATION_TABLE_NAME,
   pgDumpPath = "pg_dump",
   schemaFile = SCHEMA_FILE,
+  throwOnChangedSchema = false,
   statementTimeoutSeconds?: number,
   log = {
     debug: (message: unknown) => console.debug(message),
@@ -410,7 +421,16 @@ export const migrateDatabase = async (
     }
 
     // Write the new database schema to file
-    await updateSchemaFile(pgDumpPath, schemaFile, client, log)
+    const schemaFilePath = schemaFile
+      ? path.join(process.cwd(), schemaFile)
+      : schemaFile
+    await updateSchemaFile(
+      pgDumpPath,
+      schemaFilePath,
+      client,
+      throwOnChangedSchema,
+      log,
+    )
   } finally {
     try {
       await releaseLock(client)
@@ -534,7 +554,10 @@ export const migrateV2ToV3 = async (
       scriptLines.push(commitTransactionCommand)
 
       // Write the new database schema to file
-      await updateSchemaFile(pgDumpPath, schemaFile, client, log)
+      const schemaFilePath = schemaFile
+        ? path.join(process.cwd(), schemaFile)
+        : schemaFile
+      await updateSchemaFile(pgDumpPath, schemaFilePath, client, undefined, log)
 
       // Write script to migration migration table to file.
       fs.writeFileSync(

@@ -40,11 +40,12 @@ const getDigestFromString = (str: string) =>
     .update(new Uint8Array(Buffer.from(str, "utf-8")))
     .digest("hex")
 
-describe("createDatabaseMigration()", () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
+afterEach(() => {
+  vi.useRealTimers()
+  mockFs.restore()
+})
 
+describe("createDatabaseMigration()", () => {
   it("creates file with required arguments set", async () => {
     mockFs({})
     vi.setSystemTime(new Date("2020-01-02T03:04:05Z"))
@@ -76,10 +77,6 @@ describe("createDatabaseMigration()", () => {
 })
 
 describe("databaseNeedsMigration()", () => {
-  afterEach(() => {
-    mockFs.restore()
-  })
-
   it("returns true when database does not contain migration table", async () => {
     mockFs({})
 
@@ -389,6 +386,8 @@ describe("migrateDatabase()", () => {
   })
 
   it("applies migration with transaction", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
+
     // Generate 101 migrations.
     const files = [...Array.from({ length: 101 })].map<{
       filename: string
@@ -401,6 +400,7 @@ describe("migrateDatabase()", () => {
     }))
 
     mockFs({
+      [schemaFilePath]: "schema",
       [path.join(process.cwd(), "migrations")]: files.reduce(
         (map, { filename, content }) => {
           map[filename] = content
@@ -456,16 +456,18 @@ describe("migrateDatabase()", () => {
     expect(mockQuery).toHaveBeenCalledTimes(409)
     expect(mockExec.mock.calls).toStrictEqual([
       [
-        'pg_dump --no-owner --no-privileges --schema-only --file=schema.sql "postgresql://:@undefined:undefined/"',
+        `pg_dump --no-owner --no-privileges --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
         expect.any(Function),
       ],
     ])
   })
 
   it("applies migration without transaction", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
     const migration = "-- no_transaction\nmigration1"
 
     mockFs({
+      [schemaFilePath]: "schema",
       [path.join(process.cwd(), "migrations")]: {
         "20200101000000.sql": migration,
       },
@@ -502,7 +504,7 @@ describe("migrateDatabase()", () => {
     expect(mockQuery).toHaveBeenCalledTimes(7)
     expect(mockExec.mock.calls).toStrictEqual([
       [
-        'pg_dump --no-owner --no-privileges --schema-only --file=schema.sql "postgresql://:@undefined:undefined/"',
+        `pg_dump --no-owner --no-privileges --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
         expect.any(Function),
       ],
     ])
@@ -510,6 +512,7 @@ describe("migrateDatabase()", () => {
 
   it("updates statement_timeout when value is provided", async () => {
     mockFs({
+      [path.join(process.cwd(), "schema.sql")]: "schema",
       [path.join(process.cwd(), "migrations")]: {
         "20200101000000_first_migration.sql": "migration1",
       },
@@ -557,6 +560,7 @@ describe("migrateDatabase()", () => {
       undefined,
       undefined,
       undefined,
+      undefined,
       300,
     )
 
@@ -570,6 +574,45 @@ describe("migrateDatabase()", () => {
       "set statement_timeout = $1;",
       ["0"],
     ])
+  })
+
+  it("throws when throwOnChangedSchema=true and schema is changed by migration", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
+    const migration = "migration1"
+
+    mockFs({
+      [schemaFilePath]: "schema",
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000.sql": migration,
+      },
+    })
+
+    vi.mocked<ExecFn>(exec).mockImplementationOnce((_, callback) => {
+      fs.writeFileSync(schemaFilePath, "changed schema")
+      callback?.(null, "", "")
+      return {} as ReturnType<ExecFn>
+    })
+
+    const client = new Client()
+    ;(vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>)
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Select existing digests
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Apply migration
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Insert migration row
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await expect(
+      migrateDatabase(client, undefined, undefined, undefined, undefined, true),
+    ).rejects.toThrow("Database schema was expectedly changed by migrations!")
   })
 })
 
@@ -605,6 +648,7 @@ describe("migrateV2ToV3", () => {
 
   it("drops and recreates migration table, renames files, and writes pg_migrate_v2_to_v3_migration.sql", async () => {
     mockFs({
+      [path.join(process.cwd(), "schema.sql")]: "Test",
       [path.join(process.cwd(), "migrations")]: {
         "0001.sql": "migration1",
         "0002.sql": "migration2",
@@ -704,10 +748,6 @@ commit;`)
 })
 
 describe("overwriteDatabaseMd5()", () => {
-  afterEach(() => {
-    vi.useRealTimers()
-  })
-
   it("throws when migration file does not exist", async () => {
     mockFs({})
 
