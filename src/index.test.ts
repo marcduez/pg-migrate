@@ -17,13 +17,16 @@ import {
 vi.mock("pg", () => {
   const Client = vi.fn(
     class {
-      escapeIdentifier = (identifier: string) => `"${identifier}"`
-      escapeLiteral = (literal: string) => `'${literal}'`
       query = vi.fn()
     },
   )
-  return { Client }
+  return {
+    escapeIdentifier: (identifier: string) => `"${identifier}"`,
+    escapeLiteral: (literal: string) => `'${literal}'`,
+    Client,
+  }
 })
+
 vi.mock("child_process")
 type ExecFn = (
   command: string,

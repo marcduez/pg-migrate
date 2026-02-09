@@ -1,4 +1,4 @@
-import type { Client } from "pg"
+import { escapeLiteral, type Client } from "pg"
 
 export const getExtensions = async (client: Client) => {
   const { rows } = await client.query<{
@@ -21,7 +21,7 @@ export const getExtensions = async (client: Client) => {
 
   return rows
     .flatMap(({ extension_comment, extension_name, schema_name }) => {
-      const escapedComment = client.escapeLiteral(extension_comment)
+      const escapedComment = escapeLiteral(extension_comment)
       return [
         `CREATE EXTENSION IF NOT EXISTS ${extension_name} WITH SCHEMA ${schema_name};`,
         `COMMENT ON EXTENSION ${extension_name} IS ${escapedComment};`,
