@@ -176,18 +176,29 @@ const releaseLock = async (client: ClientBase): Promise<void> => {
   }
 }
 
+const warnIfDigestsInDatabaseButNotInFiles = (
+  digestsFromDatabase: Map<string, string>,
+  digestsFromFiles: Map<string, string>,
+  log = {
+    warn: (message: unknown) => console.warn(message),
+  },
+) => {
+  for (const [filename, digestFromDatabase] of digestsFromDatabase) {
+    if (!digestsFromFiles.has(filename)) {
+      log.warn(
+        `WARNING: Migration ${filename} has digest ${digestFromDatabase} in database, and does not exist in files`,
+      )
+    }
+  }
+}
+
 const throwIfDigestsDiffer = (
   digestsFromDatabase: Map<string, string>,
   digestsFromFiles: Map<string, string>,
 ) => {
   for (const [filename, digestFromDatabase] of digestsFromDatabase) {
-    if (!digestsFromFiles.has(filename)) {
-      throw new Error(
-        `Migration ${filename} has digest ${digestFromDatabase} in database, and does not exist in files`,
-      )
-    }
     const digestFromFile = digestsFromFiles.get(filename)
-    if (digestFromFile !== digestFromDatabase) {
+    if (digestFromFile && digestFromFile !== digestFromDatabase) {
       throw new Error(
         `Migration ${filename} has digest ${digestFromFile} in files, and digest ${digestFromDatabase} in database`,
       )
@@ -239,7 +250,7 @@ const updateSchemaFile = async (
     const connectionString = getConnectionString(client)
     await new Promise<void>((resolve, reject) => {
       exec(
-        `${pgDumpPath} --no-owner --no-privileges --schema-only --restrict-key=${PG_DUMP_RESTRICT_KEY} --file=${schemaFilePath} "${connectionString}"`,
+        `${pgDumpPath} --no-owner --no-privileges --no-comments --schema-only --restrict-key=${PG_DUMP_RESTRICT_KEY} --file=${schemaFilePath} "${connectionString}"`,
         (error, stdout, stderr) => {
           if (error) {
             reject(error)
@@ -305,6 +316,7 @@ export const databaseNeedsMigration = async (
   migrationTableName = MIGRATION_TABLE_NAME,
   log = {
     debug: (message: unknown) => console.debug(message),
+    warn: (message: unknown) => console.warn(message),
   },
 ) => {
   const digestsFromDatabase = await getDigestsFromDatabase(
@@ -312,6 +324,12 @@ export const databaseNeedsMigration = async (
     migrationTableName,
   )
   const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
+
+  warnIfDigestsInDatabaseButNotInFiles(
+    digestsFromDatabase,
+    digestsFromFiles,
+    log,
+  )
 
   throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
 
@@ -340,6 +358,7 @@ export const migrateDatabase = async (
   log = {
     debug: (message: unknown) => console.debug(message),
     info: (message: unknown) => console.log(message),
+    warn: (message: unknown) => console.warn(message),
     error: (message: unknown) => console.error(message),
   },
 ) => {
@@ -365,6 +384,12 @@ export const migrateDatabase = async (
       migrationTableName,
     )
     const digestsFromFiles = await getDigestsFromFiles(migrationDir, log)
+
+    warnIfDigestsInDatabaseButNotInFiles(
+      digestsFromDatabase,
+      digestsFromFiles,
+      log,
+    )
 
     throwIfDigestsDiffer(digestsFromDatabase, digestsFromFiles)
 
