@@ -120,9 +120,10 @@ describe("databaseNeedsMigration()", () => {
     expect(mockQuery).toHaveBeenCalledTimes(2)
   })
 
-  it("throws when migration is in database and not in filesystem", async () => {
+  it("warns when migration is in database and not in filesystem", async () => {
     mockFs({})
 
+    const mockWarn = vi.fn<typeof console.warn>()
     const client = new Client()
     const mockQuery = (
       vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
@@ -139,11 +140,17 @@ describe("databaseNeedsMigration()", () => {
         ],
       } as QueryResult)
 
-    await expect(databaseNeedsMigration(client)).rejects.toThrow(
-      "Migration 20200102030405_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
-    )
+    await databaseNeedsMigration(client, undefined, undefined, {
+      debug: () => {},
+      warn: mockWarn,
+    })
 
     expect(mockQuery).toHaveBeenCalledTimes(2)
+    expect(mockWarn.mock.calls).toStrictEqual([
+      [
+        "WARNING: Migration 20200102030405_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
+      ],
+    ])
   })
 
   it("throws when migration in database and filesystem have different digests", async () => {
@@ -213,7 +220,10 @@ describe("databaseNeedsMigration()", () => {
       client,
       "migrationDir",
       "migrationTable",
-      { debug: message => console.debug(message) },
+      {
+        debug: message => console.debug(message),
+        warn: message => console.warn(message),
+      },
     )
 
     expect(actual).toBe(false)
@@ -313,11 +323,12 @@ describe("migrateDatabase()", () => {
     )
   })
 
-  it("throws when migration is in database and not in filesystem", async () => {
+  it("warns when migration is in database and not in filesystem", async () => {
     mockFs({
       [path.join(process.cwd(), "migrations")]: {},
     })
 
+    const mockWarn = vi.fn<typeof console.warn>()
     const client = new Client()
     const mockQuery = (
       vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>
@@ -340,11 +351,28 @@ describe("migrateDatabase()", () => {
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
-    await expect(migrateDatabase(client)).rejects.toThrow(
-      "Migration 20200101000000_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
+    await migrateDatabase(
+      client,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      {
+        debug: () => {},
+        info: () => {},
+        warn: mockWarn,
+        error: () => {},
+      },
     )
 
     expect(mockQuery).toHaveBeenCalledTimes(5)
+    expect(mockWarn.mock.calls).toStrictEqual([
+      [
+        "WARNING: Migration 20200101000000_applied_migration.sql has digest 7efb2a07775469cb63c3b4b2d8302e8e in database, and does not exist in files",
+      ],
+    ])
   })
 
   it("throws when migration in database and filesystem have different digests", async () => {
@@ -459,7 +487,7 @@ describe("migrateDatabase()", () => {
     expect(mockQuery).toHaveBeenCalledTimes(409)
     expect(mockExec.mock.calls).toStrictEqual([
       [
-        `pg_dump --no-owner --no-privileges --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
+        `pg_dump --no-owner --no-privileges --no-comments --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
         expect.any(Function),
       ],
     ])
@@ -507,7 +535,7 @@ describe("migrateDatabase()", () => {
     expect(mockQuery).toHaveBeenCalledTimes(7)
     expect(mockExec.mock.calls).toStrictEqual([
       [
-        `pg_dump --no-owner --no-privileges --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
+        `pg_dump --no-owner --no-privileges --no-comments --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
         expect.any(Function),
       ],
     ])
