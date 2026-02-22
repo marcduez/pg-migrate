@@ -6,6 +6,7 @@ import { getIndexes } from "./get-indexes"
 import { getSchemaComments } from "./get-schema-comments"
 import { getSequences } from "./get-sequences"
 import { getTablesAndViews } from "./get-tables-and-views"
+import { getTriggers } from "./get-triggers"
 
 export const getSchema = async (client: Client) =>
   [
@@ -16,6 +17,7 @@ export const getSchema = async (client: Client) =>
     await getSequences(client),
     await getTablesAndViews(client),
     await getIndexes(client),
+    await getTriggers(client),
   ]
     .filter(section => !!section)
     .join("\n\n\n")

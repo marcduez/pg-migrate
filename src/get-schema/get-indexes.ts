@@ -2,14 +2,14 @@ import { Client } from "pg"
 
 export const getIndexes = async (client: Client) => {
   const { rows: indexRows } = await client.query<{
-    index_definition: string
-    index_name: string
+    definition: string
+    name: string
     schema_name: string
   }>(`
   select
     i.schemaname::regnamespace as schema_name
-    , i.indexname::regclass as index_name
-    , i.indexdef as index_definition
+    , i.indexname::regclass as name
+    , i.indexdef as definition
   from
     pg_catalog.pg_indexes i
   where
@@ -28,48 +28,29 @@ export const getIndexes = async (client: Client) => {
   order by i.schemaname, i.indexname`)
 
   const { rows: indexPartitionRows } = await client.query<{
-    index_name: string
-    index_schema_name: string
-    table_name: string
-    table_schema_name: string
+    parent_schema_name: string
+    parent_name: string
+    schema_name: string
+    name: string
   }>(`
   select
-    icl.relnamespace::regnamespace as index_schema_name,
-    i.indexrelid::regclass AS index_name,
-    tcl.relnamespace::regnamespace as table_schema_name,
-    i.indrelid::regclass AS table_name
-  from pg_catalog.pg_index i
-  inner join pg_catalog.pg_class icl on
-    icl.oid = i.indexrelid
-  inner join pg_catalog.pg_namespace ins on
-    ins.oid = icl.relnamespace
-  inner join pg_catalog.pg_class tcl on
-    tcl.oid = i.indrelid
-  inner join pg_catalog.pg_namespace tns on
-    tns.oid = tcl.relnamespace
+    parent_con.connamespace::regnamespace as parent_schema_name
+    , parent_con.conname::regclass as parent_name
+    , con.connamespace::regnamespace as schema_name
+    , con.conname::regclass as name
+  from
+    pg_catalog.pg_constraint con
+    inner join pg_constraint parent_con on
+      parent_con.oid = con.conparentid 
   where
-	  ins.nspname not in ('pg_catalog', 'information_schema')
-    and tcl.relispartition = true
-  order by ins.nspname, icl.relname, tns.nspname, tcl.relname`)
-
-  const partitionsByIndex = new Map<string, string>(
-    indexPartitionRows.map(
-      ({ index_name, index_schema_name, table_name, table_schema_name }) => {
-        return [
-          `${index_schema_name}.${index_name}`,
-          `${table_schema_name}.${table_name}`,
-        ]
-      },
-    ),
-  )
+    con.connamespace::regnamespace not in ('pg_catalog', 'information_schema')
+  order by parent_con.connamespace, parent_con.conname, con.connamespace, con.conname`)
 
   return [
-    ...indexRows.map(
-      ({ index_definition }) => `${index_definition.trimEnd()};`,
-    ),
-    ...[...partitionsByIndex.entries()].map(
-      ([indexName, partitionName]) =>
-        `ALTER INDEX ${indexName} ATTACH PARTITION ${partitionName};`,
+    ...indexRows.map(({ definition }) => `${definition.trimEnd()};`),
+    ...indexPartitionRows.map(
+      ({ name, schema_name, parent_name, parent_schema_name }) =>
+        `ALTER INDEX ${parent_schema_name}.${parent_name} ATTACH PARTITION ${schema_name}.${name};`,
     ),
   ].join("\n\n\n")
 }
