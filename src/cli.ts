@@ -395,8 +395,8 @@ yargs(hideBin(process.argv))
   })
 
   .command({
-    command: "generate-schema",
-    describe: "Generate a schema file from the current state of the database",
+    command: "update-schema",
+    describe: "Update the schema file from the current state of the database",
     builder: {
       "schema-file": {
         alias: "s",
