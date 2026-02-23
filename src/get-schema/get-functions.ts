@@ -1,6 +1,10 @@
 import { type Client } from "pg"
 
-export const getFunctions = async (client: Client) => {
+export const getFunctions = async (
+  client: Client,
+  createTableAndViewCommands: { name: string; commands: string[] }[],
+  hoistedTablesAndViews: string[],
+) => {
   const { rows: functionRows } = await client.query<{
     args: string
     comment: string | null
@@ -17,9 +21,9 @@ export const getFunctions = async (client: Client) => {
     , pg_catalog.pg_get_functiondef(p.oid) as definition
 	  , quote_literal(d.description) as comment
   from pg_catalog.pg_proc p
-  inner join pg_catalog.pg_namespace n on
-    n.oid = p.pronamespace
-    and n.nspname not in ('pg_catalog', 'information_schema')
+  inner join pg_catalog.pg_namespace ns on
+    ns.oid = p.pronamespace
+    and ns.nspname not in ('pg_catalog', 'information_schema')
   inner join pg_catalog.pg_language l on
     l.oid = p.prolang
     and l.lanname != 'internal'
@@ -30,7 +34,7 @@ export const getFunctions = async (client: Client) => {
     pg_catalog.pg_function_is_visible(p.oid)
     and p.probin is null
     and p.prokind != 'a'
-  order by n.nspname, p.proname`)
+  order by ns.nspname, p.proname`)
 
   const { rows: aggregateRows } = await client.query<{
     args: string
@@ -65,58 +69,100 @@ export const getFunctions = async (client: Client) => {
     pg_catalog.pg_function_is_visible(p.oid)
   order by n.nspname, p.proname`)
 
-  return functionRows
-    .map(({ args, comment, definition, name, schema_name }) =>
-      [
-        `${definition.trimEnd()};`,
-        ...(comment
-          ? [
-              "",
-              "",
-              `COMMENT ON FUNCTION ${schema_name}.${name}(${args}) IS ${comment};`,
-            ]
-          : []),
-      ].join("\n"),
-    )
+  const { rows: requiredTypeRows } = await client.query<{
+    name: string
+    schema_name: string
+    type_name: string
+    type_schema_name: string
+  }>(`
+  select
+    t.typnamespace::regnamespace as schema_name
+    , t.typname::regtype as type_name
+  from pg_catalog.pg_proc p
+  inner join pg_catalog.pg_depend d on
+    -- Where the dependency parent is a procedure
+    d.objid = p.oid
+    and d.classid = 'pg_catalog.pg_proc'::regclass
+    -- Where the dependency child is a type
+    and d.refclassid = 'pg_catalog.pg_type'::regclass
+  inner join pg_catalog.pg_type t on
+    t.oid = d.refobjid
+  inner join pg_catalog.pg_language l on
+    l.oid = p.prolang
+    and l.lanname != 'internal'
+  where
+    pg_catalog.pg_function_is_visible(p.oid)
+    and p.probin is null
+  order by t.typnamespace, t.typname`)
+
+  const distinctSchemaAndTypeNames = [
+    ...requiredTypeRows.reduce((set, row) => {
+      set.add(`${row.schema_name}.${row.type_name}`)
+      return set
+    }, new Set<string>()),
+  ]
+
+  return distinctSchemaAndTypeNames
+    .flatMap(schemaAndTypeName => {
+      // Hoist `CREATE TABLE` / `CREATE VIEW` command if it describes a type required by a function
+      const commands =
+        createTableAndViewCommands.find(
+          ({ name }) => name === schemaAndTypeName,
+        )?.commands ?? []
+      if (commands.length) {
+        hoistedTablesAndViews.push(schemaAndTypeName)
+      }
+      return commands
+    })
     .concat(
-      aggregateRows.map(
-        ({
-          args,
-          comment,
-          final_function_name,
-          initial_condition,
-          name,
-          schema_name,
-          state_transition_function_name,
-          state_type,
-        }) => {
-          return [
-            `CREATE AGGREGATE ${schema_name}.${name}(${args}) (`,
-            [
-              ...(state_transition_function_name
+      functionRows
+        .flatMap(({ args, comment, definition, name, schema_name }) => [
+          `${definition
+            .replaceAll(/^CREATE OR REPLACE FUNCTION/g, "CREATE FUNCTION")
+            .trimEnd()};`,
+          ...(comment
+            ? [
+                `COMMENT ON FUNCTION ${schema_name}.${name}(${args}) IS ${comment};`,
+              ]
+            : []),
+        ])
+        .concat(
+          aggregateRows.flatMap(
+            ({
+              args,
+              comment,
+              final_function_name,
+              initial_condition,
+              name,
+              schema_name,
+              state_transition_function_name,
+              state_type,
+            }) => [
+              [
+                `CREATE AGGREGATE ${schema_name}.${name}(${args}) (`,
+                [
+                  ...(state_transition_function_name
+                    ? [
+                        `   SFUNC = ${schema_name}.${state_transition_function_name}`,
+                      ]
+                    : []),
+                  `   STYPE = ${state_type}`,
+                  ...(final_function_name !== "-"
+                    ? [`    FINALFUNC = ${schema_name}.${final_function_name}`]
+                    : []),
+                  ...(initial_condition
+                    ? [`    INITCOND = ${initial_condition}`]
+                    : []),
+                ].join(",\n"),
+                ");",
+              ].join("\n"),
+              ...(comment
                 ? [
-                    `   SFUNC = ${schema_name}.${state_transition_function_name}`,
+                    `COMMENT ON FUNCTION ${schema_name}.${name}(${args}) IS ${comment};`,
                   ]
                 : []),
-              `   STYPE = ${state_type}`,
-              ...(final_function_name !== "-"
-                ? [`    FINALFUNC = ${schema_name}.${final_function_name}`]
-                : []),
-              ...(initial_condition
-                ? [`    INITCOND = ${initial_condition}`]
-                : []),
-            ].join(",\n"),
-            ");",
-            ...(comment
-              ? [
-                  "",
-                  "",
-                  `COMMENT ON FUNCTION ${schema_name}.${name}(${args}) IS ${comment};`,
-                ]
-              : []),
-          ].join("\n")
-        },
-      ),
+            ],
+          ),
+        ),
     )
-    .join("\n\n\n")
 }

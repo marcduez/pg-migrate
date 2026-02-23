@@ -36,32 +36,30 @@ export const getSequences = async (client: Client) => {
   order by
     s.schemaname, s.sequencename`)
 
-  return rows
-    .map(
-      ({
-        cache_size,
-        cycle,
-        data_type,
-        increment_by,
-        max_value,
-        min_value,
-        name,
-        schema_name,
-        start_value,
-      }) =>
-        [
-          `CREATE SEQUENCE ${schema_name}.${name}`,
-          `    START WITH ${start_value}`,
-          `    INCREMENT BY ${increment_by}`,
-          min_value === start_value
-            ? "    NO MINVALUE"
-            : `    MINVALUE ${min_value}`,
-          max_value === MAX_VALUES_BY_TYPE.get(data_type)
-            ? "    NO MAXVALUE"
-            : `    MAXVALUE ${max_value}`,
-          ...(cycle ? ["    CYCLE"] : []),
-          `    CACHE ${cache_size};`,
-        ].join("\n"),
-    )
-    .join("\n\n\n")
+  return rows.map(
+    ({
+      cache_size,
+      cycle,
+      data_type,
+      increment_by,
+      max_value,
+      min_value,
+      name,
+      schema_name,
+      start_value,
+    }) =>
+      [
+        `CREATE SEQUENCE ${schema_name}.${name}`,
+        `    START WITH ${start_value}`,
+        `    INCREMENT BY ${increment_by}`,
+        min_value === start_value
+          ? "    NO MINVALUE"
+          : `    MINVALUE ${min_value}`,
+        max_value === MAX_VALUES_BY_TYPE.get(data_type)
+          ? "    NO MAXVALUE"
+          : `    MAXVALUE ${max_value}`,
+        ...(cycle ? ["    CYCLE"] : []),
+        `    CACHE ${cache_size};`,
+      ].join("\n"),
+  )
 }

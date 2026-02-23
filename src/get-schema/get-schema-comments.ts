@@ -9,19 +9,18 @@ export const getSchemaComments = async (client: Client) => {
     name: string
   }>(`
   select
-    n.oid::regnamespace as name
+    ns.oid::regnamespace as name
     , quote_literal(d.description) as comment
-  from pg_catalog.pg_namespace n
-  -- Inner join on comments to only return schemas with comments
+  from pg_catalog.pg_namespace ns
   inner join pg_catalog.pg_description d on
-  	d.objoid = n.oid
-  	and d.classoid = 'pg_catalog.pg_namespace'::regclass
+    d.objoid = ns.oid
+    and d.classoid = 'pg_catalog.pg_namespace'::regclass
   where
-    n.nspname != 'information_schema'
-    and n.nspname !~ '^pg_'
-  order by n.nspname`)
+    ns.nspname != 'information_schema'
+    and ns.nspname !~ '^pg_'
+  order by ns.nspname`)
 
-  return rows
-    .map(({ comment, name }) => `COMMENT ON SCHEMA ${name} IS ${comment};`)
-    .join("\n\n\n")
+  return rows.map(
+    ({ comment, name }) => `COMMENT ON SCHEMA ${name} IS ${comment};`,
+  )
 }

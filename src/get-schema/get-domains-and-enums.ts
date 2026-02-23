@@ -1,166 +1,169 @@
 import type { Client } from "pg"
 
 export const getDomainsAndEnums = async (client: Client) => {
-  const { rows: domainRows } = await client.query<{
+  const { rows } = await client.query<{
     comment: string | null
-    constraint_definition: string | null
-    constraint_name: string | null
+    domain_constraint_definition: string | null
+    domain_constraint_name: string | null
+    domain_underlying_type: string | null
+    enum_value: string | null
     name: string
     owner_name: string
+    row_type: "domain" | "enum"
     schema_name: string
-    underlying_type: string
   }>(`
-  select
-    t.typnamespace::regnamespace as schema_name
-    , t.oid::regtype as name
-    , quote_ident(c.conname) as constraint_name
-    , pg_get_constraintdef(c.oid) as constraint_definition
-    , pg_catalog.format_type(t.typbasetype, t.typtypmod) as underlying_type
-	  , t.typowner::regrole as owner_name
-	  , quote_literal(d.description) as comment
-  from pg_catalog.pg_type t
-  inner join pg_catalog.pg_namespace n on
-    n.oid = t.typnamespace
-    and n.nspname not in ('pg_catalog', 'information_schema')
-  left join pg_catalog.pg_constraint c on
-	  c.contypid = t.oid
-  left join pg_catalog.pg_description d on
-  	d.objoid = t.oid
-  	and d.classoid = 'pg_catalog.pg_type'::regclass
-  where
-    -- Where type is domain
-    t.typtype = 'd'
-  order by n.nspname, t.typname, c.conname`)
+  select 
+    schema_name::regnamespace as schema_name
+    , name::regtype as name
+    , row_type
+    , quote_literal(enum_value) as enum_value
+    , quote_ident(domain_constraint_name) as domain_constraint_name
+    , domain_constraint_definition
+    , domain_underlying_type
+    , owner_name::regrole as owner_name
+    , quote_literal(comment) as comment
+  from (
+    -- Select domains
+    select
+      ns.nspname as schema_name
+      , t.typname as name
+      , 'domain' as row_type
+      , null as enum_value
+      , null as enum_sort_order
+      , con.conname as domain_constraint_name
+      , pg_get_constraintdef(con.oid) as domain_constraint_definition
+      , pg_catalog.format_type(t.typbasetype, t.typtypmod) as domain_underlying_type
+      , t.typowner as owner_name
+      , d.description as comment
+    from pg_catalog.pg_type t
+    inner join pg_catalog.pg_namespace ns on
+      ns.oid = t.typnamespace
+      and ns.nspname not in ('pg_catalog', 'information_schema')
+    left join pg_catalog.pg_constraint con on
+      con.contypid = t.oid
+    left join pg_catalog.pg_description d on
+      d.objoid = t.oid
+      and d.classoid = 'pg_catalog.pg_type'::regclass
+    where
+      -- Where type is domain
+      t.typtype = 'd'
 
-  const { rows: enumRows } = await client.query<{
-    comment: string | null
-    name: string
-    owner_name: string
-    schema_name: string
-    value: string
-  }>(`
-  select
-    t.typnamespace::regnamespace as schema_name
-    , t.oid::regtype as name
-    , quote_literal(e.enumlabel) as value
-	  , t.typowner::regrole as owner_name
-	  , quote_literal(d.description) as comment
-  from pg_catalog.pg_enum e
-  inner join pg_catalog.pg_type t on
-    t.oid = e.enumtypid
-    and t.typtype = 'e'
-  inner join pg_catalog.pg_namespace n on
-    n.oid = t.typnamespace
-    and n.nspname not in ('pg_catalog', 'information_schema')
-  left join pg_catalog.pg_description d on
-  	d.objoid = t.oid
-  	and d.classoid = 'pg_catalog.pg_type'::regclass
-  order by n.nspname, t.typname, e.enumsortorder`)
+    union all
 
-  const dataByName: Map<
-    string,
-    | {
-        type: "enum"
-        comment: string | null
-        owner: string
-        values: string[]
-      }
-    | {
-        type: "domain"
-        comment: string | null
-        constraints: string[]
-        owner: string
-        underlyingType: string
-      }
-  > = new Map()
-
-  domainRows.forEach(
-    ({
-      comment,
-      constraint_definition,
-      constraint_name,
-      name,
-      owner_name,
-      schema_name,
-      underlying_type,
-    }) => {
-      const key = `${schema_name}.${name}`
-      const constraint = constraint_name
-        ? `CONSTRAINT ${constraint_name} ${constraint_definition || ""}`
-        : null
-
-      if (!dataByName.has(key)) {
-        dataByName.set(key, {
-          comment,
-          constraints: constraint ? [constraint] : [],
-          owner: owner_name,
-          underlyingType: underlying_type,
-          type: "domain",
-        })
-        return
-      }
-
-      const data = dataByName.get(key)!
-      if (data.type !== "domain") {
-        throw new Error(
-          `Was expected ${key} to be a domain, but it was an enum`,
-        )
-      }
-
-      if (constraint) {
-        data.constraints.push(constraint)
-      }
-    },
+    -- Select enums
+    select
+      ns.nspname 
+      , t.typname
+      , 'enum' as row_type
+      , e.enumlabel as enum_value
+      , e.enumsortorder as enum_sort_order
+      , null as domain_constraint_name
+      , null as domain_constraint_definition
+      , null as domain_underlying_type
+      , t.typowner as owner_name
+      , d.description as comment
+    from pg_catalog.pg_enum e
+    inner join pg_catalog.pg_type t on
+      t.oid = e.enumtypid
+      -- Where type is enum
+      and t.typtype = 'e'
+    inner join pg_catalog.pg_namespace ns on
+      ns.oid = t.typnamespace
+      and ns.nspname not in ('pg_catalog', 'information_schema')
+    left join pg_catalog.pg_description d on
+      d.objoid = t.oid
+      and d.classoid = 'pg_catalog.pg_type'::regclass
   )
+  order by schema_name, name, enum_sort_order, domain_constraint_name`)
 
-  enumRows.forEach(({ comment, name, owner_name, schema_name, value }) => {
-    const key = `${schema_name}.${name}`
-
-    if (!dataByName.has(key)) {
-      dataByName.set(key, {
+  return rows
+    .reduce<
+      {
+        comment: string | null
+        domainConstraints: string[]
+        domainUnderlyingType: string | null
+        enumValues: string[]
+        name: string
+        schemaName: string
+        type: "enum" | "domain"
+      }[]
+    >(
+      (
+        arr,
+        {
+          comment,
+          domain_constraint_definition,
+          domain_constraint_name,
+          domain_underlying_type,
+          enum_value,
+          name,
+          row_type,
+          schema_name,
+        },
+      ) => {
+        let item = arr.find(
+          item => item.schemaName === schema_name && item.name === name,
+        )
+        if (!item) {
+          item = {
+            comment,
+            domainConstraints: [],
+            domainUnderlyingType: null,
+            enumValues: [],
+            name,
+            schemaName: schema_name,
+            type: row_type,
+          }
+          arr.push(item)
+        }
+        if (row_type === "enum") {
+          // Enum type
+          item.enumValues.push(`    ${enum_value!}`)
+        } else {
+          // Domain type
+          item.domainUnderlyingType = domain_underlying_type
+          if (domain_constraint_name) {
+            item.domainConstraints.push(
+              `    CONSTRAINT ${domain_constraint_name} ${domain_constraint_definition!}`,
+            )
+          }
+        }
+        return arr
+      },
+      [],
+    )
+    .flatMap(
+      ({
         comment,
-        owner: owner_name,
-        values: [value],
-        type: "enum",
-      })
-      return
-    }
+        domainConstraints,
+        domainUnderlyingType,
+        enumValues,
+        name,
+        schemaName,
+        type,
+      }) => {
+        if (type === "enum") {
+          return [
+            [
+              `CREATE TYPE ${schemaName}.${name} AS ENUM (`,
+              enumValues.join(",\n"),
+              ");",
+            ].join("\n"),
+            ...(comment
+              ? [`COMMENT ON TYPE ${schemaName}.${name} IS ${comment};`]
+              : []),
+          ]
+        }
 
-    const data = dataByName.get(key)!
-    if (data.type !== "enum") {
-      throw new Error(`Was expected ${key} to be an enum, but it was a domain`)
-    }
-    data.values.push(value)
-  })
-
-  return [...dataByName.entries()]
-    .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
-    .map(([name, data]) => {
-      if (data.type === "enum") {
+        const createCommand = `CREATE DOMAIN ${schemaName}.${name} AS ${domainUnderlyingType}`
         return [
-          `CREATE TYPE ${name} AS ENUM (`,
-          data.values.map(value => `  ${value}`).join(",\n"),
-          ");",
-          ...(data.comment
-            ? ["", "", `COMMENT ON TYPE ${name} IS ${data.comment};`]
+          domainConstraints.length
+            ? [createCommand, domainConstraints.join("\n") + ";"].join("\n")
+            : `${createCommand};`,
+          ...(comment
+            ? [`COMMENT ON DOMAIN ${schemaName}.${name} IS ${comment};`]
             : []),
-        ].join("\n")
-      }
-
-      const createCommand = `CREATE DOMAIN ${name} AS ${data.underlyingType}`
-      return [
-        ...(data.constraints.length
-          ? [
-              createCommand,
-              data.constraints
-                .map(constraint => `  ${constraint}`)
-                .join(",\n") + ";",
-            ]
-          : [`${createCommand};`]),
-        ...(data.comment
-          ? ["", "", `COMMENT ON DOMAIN ${name} IS ${data.comment};`]
-          : []),
-      ].join("\n")
-    })
-    .join("\n\n\n")
+        ]
+      },
+    )
 }

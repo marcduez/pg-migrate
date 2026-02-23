@@ -2,30 +2,30 @@ import { Client } from "pg"
 
 export const getIndexes = async (client: Client) => {
   const { rows: indexRows } = await client.query<{
+    comment: string | null
     definition: string
     name: string
     schema_name: string
   }>(`
   select
-    i.schemaname::regnamespace as schema_name
-    , i.indexname::regclass as name
-    , i.indexdef as definition
-  from
-    pg_catalog.pg_indexes i
+    cl.relnamespace::regnamespace as schema_name
+    , i.indexrelid::regclass as name
+    , pg_catalog.pg_get_indexdef(i.indexrelid) AS definition
+    , quote_literal(d.description) as comment
+  from pg_catalog.pg_index i
+  inner join pg_catalog.pg_class cl on
+    cl.oid = i.indexrelid
+    and cl.relnamespace::regnamespace not in ('pg_catalog', 'information_schema')
+  inner join pg_catalog.pg_namespace ns on
+    ns.oid = cl.relnamespace
+  inner join pg_catalog.pg_class table_cl on
+    table_cl.oid = i.indrelid
+  left join pg_catalog.pg_description d on
+    d.objoid = i.indexrelid
+    and d.classoid = 'pg_catalog.pg_class'::regclass
   where
-	  i.schemaname not in ('pg_catalog', 'information_schema')
-    -- Where constraint is not already created by a primary key.
-	  and not exists (
-	    select
-	    from pg_catalog.pg_constraint cn
-	    inner join pg_catalog.pg_class cl on
-        cl.oid = cn.conrelid
-	    where
-		    cl.relnamespace::regnamespace = i.schemaname::regnamespace
-		    and cn.conname::regclass = i.indexname::regclass 
-		    and cn.contype = 'p'
-    )
-  order by i.schemaname, i.indexname`)
+    not i.indisprimary
+  order by cl.relname, ns.nspname, table_cl.relname`)
 
   const { rows: indexPartitionRows } = await client.query<{
     parent_schema_name: string
@@ -47,10 +47,15 @@ export const getIndexes = async (client: Client) => {
   order by parent_con.connamespace, parent_con.conname, con.connamespace, con.conname`)
 
   return [
-    ...indexRows.map(({ definition }) => `${definition.trimEnd()};`),
+    ...indexRows.flatMap(({ comment, definition, name, schema_name }) => [
+      `${definition.trimEnd()};`,
+      ...(comment
+        ? [`COMMENT ON INDEX ${schema_name}.${name} IS ${comment};`]
+        : []),
+    ]),
     ...indexPartitionRows.map(
       ({ name, schema_name, parent_name, parent_schema_name }) =>
         `ALTER INDEX ${parent_schema_name}.${parent_name} ATTACH PARTITION ${schema_name}.${name};`,
     ),
-  ].join("\n\n\n")
+  ]
 }
