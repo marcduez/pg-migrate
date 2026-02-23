@@ -19,8 +19,8 @@ Having used this library in production for a while, I've made some changes to re
 | Version 2                                                                        | Version 3                                                                                                     |
 | -------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
 | Sequentially numbered 4-digit migration filenames (e.g. `0001.sql`, `0002.sql`). | Timestamp-plus-optional-name filenames (e.g. `20260122153125.sql` or `20260122153125_create_user_table.sql`). |
-| No use of `pg_dump`                                                              | `pg_dump` used to output schema file at the end of each migration batch.                                      |
-| Conflicts based on two migrations with the same filename.                        | Conflicts based on conflicting changes to `schema.sql` file.                                                  |
+| Does not generate schema file.                                                   | Generates schema file after each migration is run.                                                            |
+| Conflicts based on two migrations with the same filename.                        | Conflicts based on conflicting changes to schema file.                                                        |
 | Migration table primary key is integer.                                          | Migration table primary key is migration filename.                                                            |
 
 ### Steps to migrate from version 2 to version 3
@@ -31,8 +31,8 @@ Having used this library in production for a while, I've made some changes to re
 $ pg_dump -U [user_name] -d [db_name] -t migrations --no-owner --no-privileges --inserts > migrations.sql
 ```
 
-2. Create an empty database, named something like `pg_migrate_upgrade`. Run the script you exported to create the migrations table in the database you created above.
-3. In your project directory, run the `migrate-v2-to-v3` command. It will drop and re-create the migration table in your new database while preserving applied-at timestamps, rename your migration files to the new format, and write a script to `pg_migrate_v2_to_v3_migration.sql` that you can run later in production or other environments:
+2. Create an empty database, named something like `pg_migrate_upgrade`. Run the `migrations.sql` you created in step 1 against it to create just the migrations table.
+3. In your project directory, run the `migrate-v2-to-v3` command. It will drop and re-create the migration table in your new database while preserving applied-at timestamps, rename your migration files to the new format, and write a script to `pg_migrate_v2_to_v3_migration.sql` that you can run later in production or other environments. For example:
 
 ```sh
 $ DATABASE_URL="postgresql://user_name:password@localhost:5432/pg_migrate_upgrade" yarn pg-migrate migrate-v2-to-v3
@@ -47,7 +47,7 @@ $ DATABASE_URL="postgresql://user_name:password@localhost:5432/pg_migrate_upgrad
 ```
 
 5. Run the `pg_migrate_v2_to_v3_migration.sql` on your production database (and your dev database and your test database and anywhere else you've run migrations) to drop and recreate the migration table using the new format.
-6. Commit your renamed migration files and your `schema.sql` file to source control. When your production environment next evaluates migrations it should find that there are no migrations to apply.
+6. Commit your renamed migration files and your generated schema file to source control. When your production environment next evaluates migrations it should find that there are no migrations to apply.
 
 ## Installation
 
@@ -94,8 +94,6 @@ In script:
 
 ```typescript
 import { createDatabaseMigration } from "@marcduez/pg-migrate"
-
-// Your create-database-migration script.
 ;(async () => {
   const filePath = await createDatabaseMigration()
   // Outputs something like `Database migration created: /path/to/project/migrations/20260208153000_create_user_table.sql`
@@ -118,8 +116,6 @@ In script:
 ```typescript
 import { migrateDatabase } from "@marcduez/pg-migrate"
 import { Client } from "pg"
-
-// Your migrate-database script.
 ;(async () => {
   const client = new Client({
     /* your database config here */
@@ -145,11 +141,11 @@ $ yarn pg-migrate migrate
 
 If you've been working on a migration, and the latest version of your file captures everything you've made to the database, but at the time you ran migrations the digest was different, you can use the `overwrite-md5` command to update the digest in the database to match the one from your file. This is not a common operation.
 
+In script:
+
 ```typescript
 import { overwriteDatabaseMd5 } from "@marcduez/pg-migrate"
 import { Client } from "pg"
-
-// Your migrate-database script.
 ;(async () => {
   const client = new Client({
     /* your database config here */
@@ -171,6 +167,34 @@ $ npm run pg-migrate overwrite-md5
 
 $ yarn pg-migrate overwrite-md5
 # Then follow prompts
+```
+
+### Re-generating the schema file
+
+In script:
+
+```typescript
+import { updateSchemaFile } from "@marcduez/pg-migrate"
+import { Client } from "pg"
+;(async () => {
+  const client = new Client({
+    /* your database config here */
+  })
+  await client.connect()
+  try {
+    await updateSchemaFile("schema.sql", client)
+  } finally {
+    await client.end()
+  }
+})()
+```
+
+Using the CLI:
+
+```sh
+$ npm run pg-migrate update-schema
+
+$ yarn pg-migrate update-schema
 ```
 
 ### Throwing if database is not fully migrated
