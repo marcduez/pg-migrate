@@ -6,10 +6,10 @@ import yargs from "yargs"
 import { hideBin } from "yargs/helpers"
 import {
   createDatabaseMigration,
+  dumpSchemaToFile,
   migrateDatabase,
   migrateV2ToV3,
   overwriteDatabaseMd5,
-  updateSchemaFile,
 } from "."
 
 const getClient = ({
@@ -395,8 +395,8 @@ yargs(hideBin(process.argv))
   })
 
   .command({
-    command: "update-schema",
-    describe: "Update the schema file from the current state of the database",
+    command: "dump-schema",
+    describe: "Write a dump of the database schema to file",
     builder: {
       "schema-file": {
         alias: "s",
@@ -453,7 +453,7 @@ yargs(hideBin(process.argv))
       })
       await client.connect()
       try {
-        await updateSchemaFile(schemaFile, client)
+        await dumpSchemaToFile(client, schemaFile)
       } finally {
         await client.end()
       }

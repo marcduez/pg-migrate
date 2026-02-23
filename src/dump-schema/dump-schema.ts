@@ -10,7 +10,10 @@ import { getSequenceStatements } from "./get-sequence-statements"
 import { getTableAndViewStatements } from "./get-table-and-view-statements"
 import { getTriggerStatements } from "./get-trigger-statements"
 
-export const getDatabaseSchema = async (client: Client) => {
+/**
+ * Dumps the schema of a PostgreSQL database as a string of SQL statements that can be used to recreate the schema.
+ */
+export const dumpSchema = async (client: Client) => {
   const createTableAndViewStatements =
     await getCreateTableAndViewStatements(client)
   const hoistedTablesAndViewNames: string[] = []

@@ -8,12 +8,12 @@ import type { MockInstance } from "vitest"
 import {
   createDatabaseMigration,
   databaseNeedsMigration,
+  dumpSchemaToFile,
   migrateDatabase,
   migrateV2ToV3,
   overwriteDatabaseMd5,
-  updateSchemaFile,
 } from "."
-import { getDatabaseSchema } from "./get-database-schema/get-database-schema"
+import { dumpSchema } from "./dump-schema/dump-schema"
 
 vi.mock("pg", () => {
   const Client = vi.fn(
@@ -27,7 +27,7 @@ vi.mock("pg", () => {
     Client,
   }
 })
-vi.mock("./get-database-schema/get-database-schema")
+vi.mock("./dump-schema/dump-schema")
 
 const getDigestFromString = (str: string) =>
   crypto
@@ -432,8 +432,8 @@ describe("migrateDatabase()", () => {
       ),
     })
 
-    const mockGetDatabaseSchema = vi
-      .mocked(getDatabaseSchema)
+    const mockDumpSchema = vi
+      .mocked(dumpSchema)
       .mockResolvedValueOnce("new-schema")
 
     let queryCount = 0
@@ -473,7 +473,7 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(client)
 
     expect(mockQuery).toHaveBeenCalledTimes(409)
-    expect(mockGetDatabaseSchema.mock.calls).toStrictEqual([[client]])
+    expect(mockDumpSchema.mock.calls).toStrictEqual([[client]])
     expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
   })
 
@@ -488,7 +488,7 @@ describe("migrateDatabase()", () => {
       },
     })
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     const mockQuery = (
@@ -522,7 +522,7 @@ describe("migrateDatabase()", () => {
       },
     })
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     const mockQuery = (
@@ -587,7 +587,7 @@ describe("migrateDatabase()", () => {
       },
     })
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     ;(vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>)
@@ -622,7 +622,7 @@ describe("migrateDatabase()", () => {
       },
     })
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("old-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("old-schema")
 
     const client = new Client()
     ;(vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>)
@@ -687,7 +687,7 @@ describe("migrateV2ToV3", () => {
       },
     })
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     const mockQuery = (
@@ -934,7 +934,7 @@ describe("overwriteDatabaseMd5()", () => {
   })
 })
 
-describe("updateSchemaFile()", () => {
+describe("dumpSchemaToFile()", () => {
   it("updates schema file with current database schema", async () => {
     const schemaFilePath = path.join(process.cwd(), "schema.sql")
 
@@ -942,15 +942,15 @@ describe("updateSchemaFile()", () => {
       [schemaFilePath]: "old-schema",
     })
 
-    const mockGetDatabaseSchema = vi
-      .mocked(getDatabaseSchema)
+    const mockDumpSchema = vi
+      .mocked(dumpSchema)
       .mockResolvedValueOnce("new-schema")
 
     const client = new Client()
 
-    await updateSchemaFile(schemaFilePath, client)
+    await dumpSchemaToFile(client, schemaFilePath)
 
-    expect(mockGetDatabaseSchema.mock.calls).toStrictEqual([[client]])
+    expect(mockDumpSchema.mock.calls).toStrictEqual([[client]])
     expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
   })
 
@@ -961,12 +961,12 @@ describe("updateSchemaFile()", () => {
       [schemaFilePath]: "old-schema",
     })
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
 
     await expect(
-      updateSchemaFile(schemaFilePath, client, true),
+      dumpSchemaToFile(client, schemaFilePath, true),
     ).rejects.toThrow("Database schema was unexpectedly changed by migrations!")
   })
 
@@ -979,12 +979,12 @@ describe("updateSchemaFile()", () => {
 
     const mockInfo = vi.fn<typeof console.warn>()
 
-    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("old-schema")
+    vi.mocked(dumpSchema).mockResolvedValueOnce("old-schema")
 
     const client = new Client()
 
     await expect(
-      updateSchemaFile(schemaFilePath, client, false, {
+      dumpSchemaToFile(client, schemaFilePath, false, {
         info: mockInfo,
       }),
     ).resolves.not.toThrow()
@@ -998,13 +998,13 @@ describe("updateSchemaFile()", () => {
 
     const client = new Client()
 
-    await updateSchemaFile("", client, undefined, {
+    await dumpSchemaToFile(client, "", undefined, {
       info: mockInfo,
     })
 
     expect(mockInfo.mock.calls).toStrictEqual([
       ["Not updating schema file - no path was provided"],
     ])
-    expect(vi.mocked(getDatabaseSchema)).not.toHaveBeenCalled()
+    expect(vi.mocked(dumpSchema)).not.toHaveBeenCalled()
   })
 })

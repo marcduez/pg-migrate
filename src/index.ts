@@ -3,7 +3,7 @@ import fs from "fs"
 import path from "path"
 import { Client, ClientBase, escapeIdentifier, escapeLiteral } from "pg"
 import readline from "readline"
-import { getDatabaseSchema } from "./get-database-schema/get-database-schema"
+import { dumpSchema } from "./dump-schema/dump-schema"
 
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
 const MIGRATION_LOCK_ID1 = 1477123592
@@ -396,10 +396,7 @@ export const migrateDatabase = async (
     }
 
     // Write the new database schema to file
-    const schemaFilePath = schemaFile
-      ? path.join(process.cwd(), schemaFile)
-      : schemaFile
-    await updateSchemaFile(schemaFilePath, client, throwOnChangedSchema, log)
+    await dumpSchemaToFile(client, schemaFile, throwOnChangedSchema, log)
   } finally {
     try {
       await releaseLock(client)
@@ -521,10 +518,7 @@ export const migrateV2ToV3 = async (
       scriptLines.push(commitTransactionCommand)
 
       // Write the new database schema to file
-      const schemaFilePath = schemaFile
-        ? path.join(process.cwd(), schemaFile)
-        : schemaFile
-      await updateSchemaFile(schemaFilePath, client, undefined, log)
+      await dumpSchemaToFile(client, schemaFile, undefined, log)
 
       // Write script to migration migration table to file.
       fs.writeFileSync(
@@ -614,29 +608,29 @@ export const overwriteDatabaseMd5 = async (
 }
 
 /**
- * Updates the schema file with the current database schema. If throwOnChangedSchema is true, throws an error if the current database schema differs from the schema in the schema file.
+ * Dumps the current database schema to file. If throwOnChangedSchema is true, throws an error if the schema file contents change.
  *
- * @param schemaFile - The path to the file to write the database schema to.
  * @param client - The database client to use.
- * @param throwOnChangedSchema - Whether to throw an error if the current database schema differs from the schema in the schema file.
+ * @param schemaFile - The path to the file to dump the database schema to.
+ * @param throwOnChangedSchema - Whether to throw an error if the schema file contents change.
  * @param log - The logger to use.
  */
-export const updateSchemaFile = async (
-  schemaFilePath: string,
+export const dumpSchemaToFile = async (
   client: Client,
+  schemaFile = SCHEMA_FILE,
   throwOnChangedSchema = false,
   log = { info: (message: unknown) => console.log(message) },
 ) => {
-  if (!schemaFilePath) {
+  if (!schemaFile) {
     log.info(`Not updating schema file - no path was provided`)
     return
   }
 
-  log.info(`Updating schema file ${schemaFilePath}...`)
-  const schemaDigestBefore = fs.existsSync(schemaFilePath)
-    ? await getDigestFromFile(schemaFilePath)
+  log.info(`Updating schema file ${schemaFile}...`)
+  const schemaDigestBefore = fs.existsSync(schemaFile)
+    ? await getDigestFromFile(schemaFile)
     : ""
-  const schema = await getDatabaseSchema(client)
+  const schema = await dumpSchema(client)
   const schemaDigestAfter = getDigestFromString(schema)
   if (schemaDigestBefore === schemaDigestAfter) {
     log.info("Not updating schema file - no changes detected")
@@ -644,7 +638,7 @@ export const updateSchemaFile = async (
     if (throwOnChangedSchema) {
       throw new Error("Database schema was unexpectedly changed by migrations!")
     }
-    await fs.promises.writeFile(schemaFilePath, schema, "utf8")
+    await fs.promises.writeFile(schemaFile, schema, "utf8")
     log.info("Updated schema file")
   }
 }
