@@ -401,8 +401,7 @@ yargs(hideBin(process.argv))
       "schema-file": {
         alias: "s",
         default: "schema.sql",
-        describe:
-          "File that the database schema will be written to after applying migrations (set to empty string to skip writing schema)",
+        describe: "File that the database schema will be written to",
       },
       host: {
         alias: "h",
