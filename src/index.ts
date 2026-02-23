@@ -628,7 +628,7 @@ export const updateSchemaFile = async (
   log = { info: (message: unknown) => console.log(message) },
 ) => {
   if (!schemaFilePath) {
-    log.info(`Not updating schema file since no path was provided`)
+    log.info(`Not updating schema file - no path was provided`)
     return
   }
 
@@ -638,9 +638,13 @@ export const updateSchemaFile = async (
     : ""
   const schema = await getDatabaseSchema(client)
   const schemaDigestAfter = getDigestFromString(schema)
-  if (throwOnChangedSchema && schemaDigestBefore !== schemaDigestAfter) {
-    throw new Error("Database schema was unexpectedly changed by migrations!")
+  if (schemaDigestBefore === schemaDigestAfter) {
+    log.info("Not updating schema file - no changes detected")
+  } else {
+    if (throwOnChangedSchema) {
+      throw new Error("Database schema was unexpectedly changed by migrations!")
+    }
+    await fs.promises.writeFile(schemaFilePath, schema, "utf8")
+    log.info("Updated schema file")
   }
-  await fs.promises.writeFile(schemaFilePath, schema, "utf8")
-  log.info("Updated schema file")
 }

@@ -977,13 +977,20 @@ describe("updateSchemaFile()", () => {
       [schemaFilePath]: "old-schema",
     })
 
+    const mockInfo = vi.fn<typeof console.warn>()
+
     vi.mocked(getDatabaseSchema).mockResolvedValueOnce("old-schema")
 
     const client = new Client()
 
     await expect(
-      updateSchemaFile(schemaFilePath, client, false),
+      updateSchemaFile(schemaFilePath, client, false, {
+        info: mockInfo,
+      }),
     ).resolves.not.toThrow()
+    expect(mockInfo).toHaveBeenCalledWith(
+      "Not updating schema file - no changes detected",
+    )
   })
 
   it("logs and exits when schema path is falsy", async () => {
@@ -996,7 +1003,7 @@ describe("updateSchemaFile()", () => {
     })
 
     expect(mockInfo.mock.calls).toStrictEqual([
-      ["Not updating schema file since no path was provided"],
+      ["Not updating schema file - no path was provided"],
     ])
     expect(vi.mocked(getDatabaseSchema)).not.toHaveBeenCalled()
   })
