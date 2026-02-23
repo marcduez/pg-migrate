@@ -3,7 +3,8 @@ import { type Client } from "pg"
 /**
  * Returns a `CREATE FUNCTION` statement for each function.
  * Returns a `CREATE AGGREGATE` statement for each aggregate.
- * Returns a `COMMENT ON FUNCTION` statement for each function or aggregate with a defined comment.
+ * Returns a `COMMENT ON FUNCTION` statement for each function with a defined comment.
+ * Returns a `COMMENT ON AGGREGATE` statement for each aggregate with a defined comment.
  * Returns a `CREATE TABLE` / `CREATE VIEW` statement for each type required by functions or aggregates.
  */
 export const getFunctionStatements = async (

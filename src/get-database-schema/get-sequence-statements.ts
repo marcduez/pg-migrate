@@ -8,6 +8,7 @@ const MAX_VALUES_BY_TYPE = new Map([
 
 /**
  * Returns a `CREATE SEQUENCE` statement for each sequence.
+ * Returns a `COMMENT ON SEQUENCE` statement for each sequence with a defined comment.
  */
 export const getSequenceStatements = async (client: Client) => {
   const { rows } = await client.query<{
