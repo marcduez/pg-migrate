@@ -1,4 +1,3 @@
-import { ChildProcess, exec, ExecException } from "child_process"
 import crypto from "crypto"
 import fs from "fs"
 import mockFs from "mock-fs"
@@ -12,7 +11,9 @@ import {
   migrateDatabase,
   migrateV2ToV3,
   overwriteDatabaseMd5,
+  updateSchemaFile,
 } from "."
+import { getDatabaseSchema } from "./get-database-schema/get-database-schema"
 
 vi.mock("pg", () => {
   const Client = vi.fn(
@@ -26,16 +27,7 @@ vi.mock("pg", () => {
     Client,
   }
 })
-
-vi.mock("child_process")
-type ExecFn = (
-  command: string,
-  callback?: (
-    error: ExecException | null,
-    stdout: string,
-    stderr: string,
-  ) => void,
-) => ChildProcess
+vi.mock("./get-database-schema/get-database-schema")
 
 const getDigestFromString = (str: string) =>
   crypto
@@ -358,7 +350,6 @@ describe("migrateDatabase()", () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       {
         debug: () => {},
         info: () => {},
@@ -431,7 +422,7 @@ describe("migrateDatabase()", () => {
     }))
 
     mockFs({
-      [schemaFilePath]: "schema",
+      [schemaFilePath]: "old-schema",
       [path.join(process.cwd(), "migrations")]: files.reduce(
         (map, { filename, content }) => {
           map[filename] = content
@@ -441,12 +432,9 @@ describe("migrateDatabase()", () => {
       ),
     })
 
-    const mockExec = vi
-      .mocked<ExecFn>(exec)
-      .mockImplementationOnce((_, callback) => {
-        callback?.(null, "", "")
-        return {} as ReturnType<ExecFn>
-      })
+    const mockGetDatabaseSchema = vi
+      .mocked(getDatabaseSchema)
+      .mockResolvedValueOnce("new-schema")
 
     let queryCount = 0
     const client = new Client()
@@ -485,12 +473,8 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(client)
 
     expect(mockQuery).toHaveBeenCalledTimes(409)
-    expect(mockExec.mock.calls).toStrictEqual([
-      [
-        `pg_dump --no-owner --no-privileges --no-comments --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
-        expect.any(Function),
-      ],
-    ])
+    expect(mockGetDatabaseSchema.mock.calls).toStrictEqual([[client]])
+    expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
   })
 
   it("applies migration without transaction", async () => {
@@ -498,18 +482,13 @@ describe("migrateDatabase()", () => {
     const migration = "-- no_transaction\nmigration1"
 
     mockFs({
-      [schemaFilePath]: "schema",
+      [schemaFilePath]: "old-schema",
       [path.join(process.cwd(), "migrations")]: {
         "20200101000000.sql": migration,
       },
     })
 
-    const mockExec = vi
-      .mocked<ExecFn>(exec)
-      .mockImplementationOnce((_, callback) => {
-        callback?.(null, "", "")
-        return {} as ReturnType<ExecFn>
-      })
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     const mockQuery = (
@@ -533,26 +512,17 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(client)
 
     expect(mockQuery).toHaveBeenCalledTimes(7)
-    expect(mockExec.mock.calls).toStrictEqual([
-      [
-        `pg_dump --no-owner --no-privileges --no-comments --schema-only --restrict-key=a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214 --file=${schemaFilePath} "postgresql://:@undefined:undefined/"`,
-        expect.any(Function),
-      ],
-    ])
   })
 
   it("updates statement_timeout when value is provided", async () => {
     mockFs({
-      [path.join(process.cwd(), "schema.sql")]: "schema",
+      [path.join(process.cwd(), "schema.sql")]: "old-schema",
       [path.join(process.cwd(), "migrations")]: {
         "20200101000000_first_migration.sql": "migration1",
       },
     })
 
-    vi.mocked<ExecFn>(exec).mockImplementationOnce((_, callback) => {
-      callback?.(null, "", "")
-      return {} as ReturnType<ExecFn>
-    })
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     const mockQuery = (
@@ -591,7 +561,6 @@ describe("migrateDatabase()", () => {
       undefined,
       undefined,
       undefined,
-      undefined,
       300,
     )
 
@@ -612,17 +581,13 @@ describe("migrateDatabase()", () => {
     const migration = "migration1"
 
     mockFs({
-      [schemaFilePath]: "schema",
+      [schemaFilePath]: "old-schema",
       [path.join(process.cwd(), "migrations")]: {
         "20200101000000.sql": migration,
       },
     })
 
-    vi.mocked<ExecFn>(exec).mockImplementationOnce((_, callback) => {
-      fs.writeFileSync(schemaFilePath, "changed schema")
-      callback?.(null, "", "")
-      return {} as ReturnType<ExecFn>
-    })
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     ;(vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>)
@@ -642,8 +607,43 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
 
     await expect(
-      migrateDatabase(client, undefined, undefined, undefined, undefined, true),
-    ).rejects.toThrow("Database schema was expectedly changed by migrations!")
+      migrateDatabase(client, undefined, undefined, undefined, true),
+    ).rejects.toThrow("Database schema was unexpectedly changed by migrations!")
+  })
+
+  it("does not throw when throwOnChangedSchema=true and schema is not changed by migration", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
+    const migration = "migration1"
+
+    mockFs({
+      [schemaFilePath]: "old-schema",
+      [path.join(process.cwd(), "migrations")]: {
+        "20200101000000.sql": migration,
+      },
+    })
+
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("old-schema")
+
+    const client = new Client()
+    ;(vi.spyOn(client, "query") as MockInstance<() => Promise<QueryResult>>)
+      // Acquire lock
+      .mockResolvedValueOnce({ rows: [{ acquired: true }] } as QueryResult)
+      // Create migration table if not exists
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Check migration table exists
+      .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
+      // Select existing digests
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Apply migration
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Insert migration row
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Release lock
+      .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
+
+    await expect(
+      migrateDatabase(client, undefined, undefined, undefined, true),
+    ).resolves.not.toThrow()
   })
 })
 
@@ -678,8 +678,8 @@ describe("migrateV2ToV3", () => {
   })
 
   it("drops and recreates migration table, renames files, and writes pg_migrate_v2_to_v3_migration.sql", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
     mockFs({
-      [path.join(process.cwd(), "schema.sql")]: "Test",
       [path.join(process.cwd(), "migrations")]: {
         "0001.sql": "migration1",
         "0002.sql": "migration2",
@@ -687,10 +687,7 @@ describe("migrateV2ToV3", () => {
       },
     })
 
-    vi.mocked<ExecFn>(exec).mockImplementationOnce((_, callback) => {
-      callback?.(null, "", "")
-      return {} as ReturnType<ExecFn>
-    })
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
 
     const client = new Client()
     const mockQuery = (
@@ -775,6 +772,7 @@ insert into public."migrations" (filename, md5, applied_at_utc) values ('2020010
 insert into public."migrations" (filename, md5, applied_at_utc) values ('20200203040506.sql', '99836b0f4ca50ed7ed998c0141a334e4', '2020-02-03T04:05:06.000Z');
 insert into public."migrations" (filename, md5, applied_at_utc) values ('20200304050607.sql', '855c86c7fb7b67c95e7de5a0a8b63b84', '2020-03-04T05:06:07.000Z');
 commit;`)
+    expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
   })
 })
 
@@ -933,5 +931,73 @@ describe("overwriteDatabaseMd5()", () => {
 
     // If it was called 4 times, then no update command was sent.
     expect(mockQuery).toHaveBeenCalledTimes(4)
+  })
+})
+
+describe("updateSchemaFile()", () => {
+  it("updates schema file with current database schema", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
+
+    mockFs({
+      [schemaFilePath]: "old-schema",
+    })
+
+    const mockGetDatabaseSchema = vi
+      .mocked(getDatabaseSchema)
+      .mockResolvedValueOnce("new-schema")
+
+    const client = new Client()
+
+    await updateSchemaFile(schemaFilePath, client)
+
+    expect(mockGetDatabaseSchema.mock.calls).toStrictEqual([[client]])
+    expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
+  })
+
+  it("throws when throwOnChangedSchema=true and schema is changed by migration", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
+
+    mockFs({
+      [schemaFilePath]: "old-schema",
+    })
+
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("new-schema")
+
+    const client = new Client()
+
+    await expect(
+      updateSchemaFile(schemaFilePath, client, true),
+    ).rejects.toThrow("Database schema was unexpectedly changed by migrations!")
+  })
+
+  it("does not throw when throwOnChangedSchema=true and schema is not changed by migration", async () => {
+    const schemaFilePath = path.join(process.cwd(), "schema.sql")
+
+    mockFs({
+      [schemaFilePath]: "old-schema",
+    })
+
+    vi.mocked(getDatabaseSchema).mockResolvedValueOnce("old-schema")
+
+    const client = new Client()
+
+    await expect(
+      updateSchemaFile(schemaFilePath, client, false),
+    ).resolves.not.toThrow()
+  })
+
+  it("logs and exits when schema path is falsy", async () => {
+    const mockInfo = vi.fn<typeof console.warn>()
+
+    const client = new Client()
+
+    await updateSchemaFile("", client, undefined, {
+      info: mockInfo,
+    })
+
+    expect(mockInfo.mock.calls).toStrictEqual([
+      ["Not updating schema file since no path was provided"],
+    ])
+    expect(vi.mocked(getDatabaseSchema)).not.toHaveBeenCalled()
   })
 })

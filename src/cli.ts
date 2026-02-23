@@ -9,6 +9,7 @@ import {
   migrateDatabase,
   migrateV2ToV3,
   overwriteDatabaseMd5,
+  updateSchemaFile,
 } from "."
 
 const getClient = ({
@@ -84,7 +85,6 @@ yargs(hideBin(process.argv))
   .command<{
     migrationDir: string
     migrationTable: string
-    pgDumpPath: string
     schemaFile: string
     throwOnChangedSchema: boolean
     timeoutSeconds?: number
@@ -107,12 +107,6 @@ yargs(hideBin(process.argv))
         alias: "t",
         default: "migrations",
         describe: "Database table that tracks previously applied migrations",
-      },
-      "pg-dump-path": {
-        alias: "b",
-        default: "pg_dump",
-        describe:
-          "Path to the pg_dump executable used to write the database schema (set to empty string to skip writing schema)",
       },
       "schema-file": {
         alias: "s",
@@ -164,7 +158,6 @@ yargs(hideBin(process.argv))
     handler: async ({
       migrationDir,
       migrationTable,
-      pgDumpPath,
       schemaFile,
       throwOnChangedSchema,
       timeoutSeconds,
@@ -190,7 +183,6 @@ yargs(hideBin(process.argv))
           client,
           resolvedMigrationDir,
           migrationTable,
-          pgDumpPath,
           schemaFile,
           throwOnChangedSchema,
           timeoutSeconds,
@@ -205,7 +197,6 @@ yargs(hideBin(process.argv))
   .command<{
     migrationDir: string
     migrationTable: string
-    pgDumpPath: string
     schemaFile: string
     host?: string
     port?: number
@@ -226,12 +217,6 @@ yargs(hideBin(process.argv))
         alias: "t",
         default: "migrations",
         describe: "Database table that tracks previously applied migrations",
-      },
-      "pg-dump-path": {
-        alias: "b",
-        default: "pg_dump",
-        describe:
-          "Path to the pg_dump executable used to write the database schema (set to empty string to skip writing schema)",
       },
       "schema-file": {
         alias: "s",
@@ -273,7 +258,6 @@ yargs(hideBin(process.argv))
     handler: async ({
       migrationDir,
       migrationTable,
-      pgDumpPath,
       schemaFile,
       host,
       port,
@@ -308,7 +292,6 @@ yargs(hideBin(process.argv))
           client,
           resolvedMigrationDir,
           migrationTable,
-          pgDumpPath,
           schemaFile,
         )
       } finally {
@@ -405,6 +388,73 @@ yargs(hideBin(process.argv))
       await client.connect()
       try {
         await overwriteDatabaseMd5(client, migrationFilePath, migrationTable)
+      } finally {
+        await client.end()
+      }
+    },
+  })
+
+  .command({
+    command: "generate-schema",
+    describe: "Generate a schema file from the current state of the database",
+    builder: {
+      "schema-file": {
+        alias: "s",
+        default: "schema.sql",
+        describe:
+          "File that the database schema will be written to after applying migrations (set to empty string to skip writing schema)",
+      },
+      host: {
+        alias: "h",
+        defaultDescription: '"localhost"',
+        describe:
+          "Database server host or socket directory (or set PGHOST env variable)",
+      },
+      port: {
+        alias: "p",
+        defaultDescription: "5432",
+        number: true,
+        describe: "Database server port (or set PGPORT env variable)",
+      },
+      database: {
+        alias: "D",
+        describe:
+          "Database name to connect to (or set PGDATABASE env variable)",
+      },
+      username: {
+        alias: "U",
+        defaultDescription: '"postgres"',
+        describe: "Database user name (or set PGUSER env variable)",
+      },
+      password: {
+        alias: "W",
+        describe: "Database password (or set PGPASSWORD env variable)",
+      },
+      "connection-string": {
+        describe:
+          "Database connection string (or set PGURI or DATABASE_URL env variable)",
+      },
+    },
+    handler: async ({
+      schemaFile,
+      host,
+      port,
+      database,
+      username,
+      password,
+      connectionString,
+    }) => {
+      const client = getClient({
+        host,
+        port,
+        database,
+        username,
+        password,
+        connectionString,
+      })
+      await client.connect()
+      try {
+        await updateSchemaFile(schemaFile, client)
       } finally {
         await client.end()
       }

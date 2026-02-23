@@ -6,9 +6,13 @@ const MAX_VALUES_BY_TYPE = new Map([
   ["smallint", "32767"],
 ])
 
-export const getSequences = async (client: Client) => {
+/**
+ * Returns a `CREATE SEQUENCE` statement for each sequence.
+ */
+export const getSequenceStatements = async (client: Client) => {
   const { rows } = await client.query<{
     cache_size: number
+    comment: string | null
     cycle: boolean
     data_type: string
     increment_by: string
@@ -30,15 +34,25 @@ export const getSequences = async (client: Client) => {
     , s.increment_by
     , s.cycle
     , s.cache_size
+    , quote_literal(d.description) AS comment
   from pg_catalog.pg_sequences s
+  inner join pg_catalog.pg_class cl on
+    cl.relname = s.sequencename
+    and cl.relnamespace::regnamespace = s.schemaname::regnamespace
+    -- Where type is sequence
+    and cl.relkind = 'S'
+  left join pg_catalog.pg_description d on
+    d.objoid = cl.oid
+    and d.classoid = 'pg_catalog.pg_class'::regclass
   where
     s.schemaname not in ('pg_catalog', 'information_schema')
   order by
     s.schemaname, s.sequencename`)
 
-  return rows.map(
+  return rows.flatMap(
     ({
       cache_size,
+      comment,
       cycle,
       data_type,
       increment_by,
@@ -47,7 +61,7 @@ export const getSequences = async (client: Client) => {
       name,
       schema_name,
       start_value,
-    }) =>
+    }) => [
       [
         `CREATE SEQUENCE ${schema_name}.${name}`,
         `    START WITH ${start_value}`,
@@ -61,5 +75,9 @@ export const getSequences = async (client: Client) => {
         ...(cycle ? ["    CYCLE"] : []),
         `    CACHE ${cache_size};`,
       ].join("\n"),
+      ...(comment
+        ? [`COMMENT ON SEQUENCE ${schema_name}.${name} IS ${comment};`]
+        : []),
+    ],
   )
 }

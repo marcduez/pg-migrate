@@ -1,6 +1,10 @@
 import { type Client } from "pg"
 
-export const getForeignKeyConstraints = async (client: Client) => {
+/**
+ * Returns an `ALTER TABLE ... ADD CONSTRAINT` statement for each foreign key constraint.
+ * Returns a `COMMENT ON CONSTRAINT` statement for each foreign key constraint with a defined comment.
+ */
+export const getForeignKeyConstraintStatements = async (client: Client) => {
   const { rows } = await client.query<{
     comment: string | null
     definition: string
@@ -25,7 +29,7 @@ export const getForeignKeyConstraints = async (client: Client) => {
     and d.classoid = 'pg_catalog.pg_constraint'::regclass
   where
     pg_catalog.pg_table_is_visible(con.conrelid)
-     -- Where constraint is not foreign key constraint, as those are written later
+    -- Where type is a foreign key constraint.
     and con.contype = 'f'
   order by ns.nspname, table_cl.relname, con.conname`)
 

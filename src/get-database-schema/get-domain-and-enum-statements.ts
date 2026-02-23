@@ -1,6 +1,12 @@
 import type { Client } from "pg"
 
-export const getDomainsAndEnums = async (client: Client) => {
+/**
+ * Returns a `CREATE TYPE` statement for each enum type.
+ * Returns a `COMMENT ON TYPE` statement for each enum type with a defined comment.
+ * Returns a `CREATE DOMAIN` statement for each domain.
+ * Returns a `COMMENT ON DOMAIN` statement for each domain with a defined comment.
+ */
+export const getDomainAndEnumStatements = async (client: Client) => {
   const { rows } = await client.query<{
     comment: string | null
     domain_constraint_definition: string | null

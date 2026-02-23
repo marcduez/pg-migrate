@@ -1,9 +1,9 @@
-import { exec } from "child_process"
 import crypto from "crypto"
 import fs from "fs"
 import path from "path"
 import { Client, ClientBase, escapeIdentifier, escapeLiteral } from "pg"
 import readline from "readline"
+import { getDatabaseSchema } from "./get-database-schema/get-database-schema"
 
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
 const MIGRATION_LOCK_ID1 = 1477123592
@@ -11,8 +11,6 @@ const MIGRATION_LOCK_ID2 = 1012360337
 const MIGRATION_TABLE_NAME = "migrations"
 const MIGRATION_FILE_PATTERN = /^\d{14}(_.*)?\.sql$/i
 const SCHEMA_FILE = "schema.sql"
-const PG_DUMP_RESTRICT_KEY =
-  "a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d92145a6b3c8e7f0d9214"
 // The time to wait between each attempt to acquire a database lock.
 const ACQUIRE_LOCK_BACK_OFFS_MS = [200, 500, 1000]
 
@@ -82,6 +80,9 @@ const getDigestFromFile = async (filePath: string) => {
       .pipe(hash)
   })
 }
+
+const getDigestFromString = (content: string) =>
+  crypto.createHash("md5").update(content).digest("hex")
 
 const getDigestsFromFiles = async (
   dir: string,
@@ -226,56 +227,6 @@ const getTimestampString = (instant = new Date()) => {
   return `${year}${month}${day}${hours}${minutes}${seconds}`
 }
 
-const getConnectionString = (client: Client) => {
-  const user = encodeURIComponent(client.user || "")
-  const password = encodeURIComponent(client.password || "")
-  const host = encodeURIComponent(client.host)
-  const database = encodeURIComponent(client.database || "")
-  const port = client.port
-  return `postgresql://${user}:${password}@${host}:${port}/${database}`
-}
-
-const updateSchemaFile = async (
-  pgDumpPath: string,
-  schemaFilePath: string,
-  client: Client,
-  throwOnChangedSchema = false,
-  log: { error: (message: unknown) => void; info: (message: unknown) => void },
-) => {
-  if (!!pgDumpPath && !!schemaFilePath) {
-    log.info(`Updating schema file ${schemaFilePath}...`)
-    const schemaDigestBefore = fs.existsSync(schemaFilePath)
-      ? await getDigestFromFile(schemaFilePath)
-      : ""
-    const connectionString = getConnectionString(client)
-    await new Promise<void>((resolve, reject) => {
-      exec(
-        `${pgDumpPath} --no-owner --no-privileges --no-comments --schema-only --restrict-key=${PG_DUMP_RESTRICT_KEY} --file=${schemaFilePath} "${connectionString}"`,
-        (error, stdout, stderr) => {
-          if (error) {
-            reject(error)
-            return
-          }
-          if (stderr) {
-            log.error(stderr)
-          }
-          if (stdout) {
-            log.info(stdout)
-          }
-          resolve()
-        },
-      )
-    })
-    const schemaDigestAfter = await getDigestFromFile(schemaFilePath)
-    if (throwOnChangedSchema && schemaDigestBefore !== schemaDigestAfter) {
-      throw new Error("Database schema was expectedly changed by migrations!")
-    }
-    log.info("Updated schema file")
-  } else {
-    log.info(`Not updating schema file`)
-  }
-}
-
 /**
  * Creates a database migration file.
  *
@@ -342,8 +293,8 @@ export const databaseNeedsMigration = async (
  * @param client - The database client to use.
  * @param migrationDir - The migration directory to use.
  * @param migrationTableName - The migration table name to use.
- * @param pgDumpPath - The path to the pg_dump binary. Set to empty string to skip writing the database schema to file.
  * @param schemaFile - The path to the file to write the database schema to after applying the migrations. Set to empty string to skip writing the database schema to file.
+ * @param throwOnChangedSchema - Whether to throw an error if the current database schema differs from the schema in the schema file.
  * @param statementTimeoutSeconds - The number of seconds to set for statement_timeout when applying the migrations. If not set, the existing statement_timeout is not modified.
  * @param log - The logger to use.
  */
@@ -351,7 +302,6 @@ export const migrateDatabase = async (
   client: Client,
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
-  pgDumpPath = "pg_dump",
   schemaFile = SCHEMA_FILE,
   throwOnChangedSchema = false,
   statementTimeoutSeconds?: number,
@@ -449,13 +399,7 @@ export const migrateDatabase = async (
     const schemaFilePath = schemaFile
       ? path.join(process.cwd(), schemaFile)
       : schemaFile
-    await updateSchemaFile(
-      pgDumpPath,
-      schemaFilePath,
-      client,
-      throwOnChangedSchema,
-      log,
-    )
+    await updateSchemaFile(schemaFilePath, client, throwOnChangedSchema, log)
   } finally {
     try {
       await releaseLock(client)
@@ -480,7 +424,6 @@ export const migrateV2ToV3 = async (
   client: Client,
   migrationDir = MIGRATION_DIR,
   migrationTableName = MIGRATION_TABLE_NAME,
-  pgDumpPath = "pg_dump",
   schemaFile = SCHEMA_FILE,
   log = {
     debug: (message: unknown) => console.debug(message),
@@ -581,7 +524,7 @@ export const migrateV2ToV3 = async (
       const schemaFilePath = schemaFile
         ? path.join(process.cwd(), schemaFile)
         : schemaFile
-      await updateSchemaFile(pgDumpPath, schemaFilePath, client, undefined, log)
+      await updateSchemaFile(schemaFilePath, client, undefined, log)
 
       // Write script to migration migration table to file.
       fs.writeFileSync(
@@ -668,4 +611,36 @@ export const overwriteDatabaseMd5 = async (
       log.error(e)
     }
   }
+}
+
+/**
+ * Updates the schema file with the current database schema. If throwOnChangedSchema is true, throws an error if the current database schema differs from the schema in the schema file.
+ *
+ * @param schemaFile - The path to the file to write the database schema to.
+ * @param client - The database client to use.
+ * @param throwOnChangedSchema - Whether to throw an error if the current database schema differs from the schema in the schema file.
+ * @param log - The logger to use.
+ */
+export const updateSchemaFile = async (
+  schemaFilePath: string,
+  client: Client,
+  throwOnChangedSchema = false,
+  log = { info: (message: unknown) => console.log(message) },
+) => {
+  if (!schemaFilePath) {
+    log.info(`Not updating schema file since no path was provided`)
+    return
+  }
+
+  log.info(`Updating schema file ${schemaFilePath}...`)
+  const schemaDigestBefore = fs.existsSync(schemaFilePath)
+    ? await getDigestFromFile(schemaFilePath)
+    : ""
+  const schema = await getDatabaseSchema(client)
+  const schemaDigestAfter = getDigestFromString(schema)
+  if (throwOnChangedSchema && schemaDigestBefore !== schemaDigestAfter) {
+    throw new Error("Database schema was unexpectedly changed by migrations!")
+  }
+  await fs.promises.writeFile(schemaFilePath, schema, "utf8")
+  log.info("Updated schema file")
 }

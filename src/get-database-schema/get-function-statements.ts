@@ -1,9 +1,18 @@
 import { type Client } from "pg"
 
-export const getFunctions = async (
+/**
+ * Returns a `CREATE FUNCTION` statement for each function.
+ * Returns a `CREATE AGGREGATE` statement for each aggregate.
+ * Returns a `COMMENT ON FUNCTION` statement for each function or aggregate with a defined comment.
+ * Returns a `CREATE TABLE` / `CREATE VIEW` statement for each type required by functions or aggregates.
+ */
+export const getFunctionStatements = async (
   client: Client,
-  createTableAndViewCommands: { name: string; commands: string[] }[],
-  hoistedTablesAndViews: string[],
+  createTableAndViewStatements: {
+    tableOrViewName: string
+    statements: string[]
+  }[],
+  hoistedTablesAndViewNames: string[],
 ) => {
   const { rows: functionRows } = await client.query<{
     args: string
@@ -95,24 +104,24 @@ export const getFunctions = async (
     and p.probin is null
   order by t.typnamespace, t.typname`)
 
-  const distinctSchemaAndTypeNames = [
+  const distinctRequiredSchemaAndTypeNames = [
     ...requiredTypeRows.reduce((set, row) => {
       set.add(`${row.schema_name}.${row.type_name}`)
       return set
     }, new Set<string>()),
   ]
 
-  return distinctSchemaAndTypeNames
+  return distinctRequiredSchemaAndTypeNames
     .flatMap(schemaAndTypeName => {
-      // Hoist `CREATE TABLE` / `CREATE VIEW` command if it describes a type required by a function
-      const commands =
-        createTableAndViewCommands.find(
-          ({ name }) => name === schemaAndTypeName,
-        )?.commands ?? []
-      if (commands.length) {
-        hoistedTablesAndViews.push(schemaAndTypeName)
+      // Hoist `CREATE TABLE` / `CREATE VIEW` statement if it describes a type required by a function.
+      const statements =
+        createTableAndViewStatements.find(
+          ({ tableOrViewName }) => tableOrViewName === schemaAndTypeName,
+        )?.statements ?? []
+      if (statements.length) {
+        hoistedTablesAndViewNames.push(schemaAndTypeName)
       }
-      return commands
+      return statements
     })
     .concat(
       functionRows
@@ -158,7 +167,7 @@ export const getFunctions = async (
               ].join("\n"),
               ...(comment
                 ? [
-                    `COMMENT ON FUNCTION ${schema_name}.${name}(${args}) IS ${comment};`,
+                    `COMMENT ON AGGREGATE ${schema_name}.${name}(${args}) IS ${comment};`,
                   ]
                 : []),
             ],

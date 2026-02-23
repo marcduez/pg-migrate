@@ -3,7 +3,7 @@ import { type Client } from "pg"
 /**
  * Returns a `COMMENT ON SCHEMA` statement for each schema with a defined comment.
  */
-export const getSchemaComments = async (client: Client) => {
+export const getCommentOnSchemaStatements = async (client: Client) => {
   const { rows } = await client.query<{
     comment: string
     name: string

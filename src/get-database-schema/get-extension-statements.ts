@@ -1,6 +1,10 @@
 import { type Client } from "pg"
 
-export const getExtensions = async (client: Client) => {
+/**
+ * Returns a `CREATE EXTENSION IF NOT EXISTS` statement for each extension.
+ * Returns a `COMMENT ON EXTENSION` statement for each extension with a defined comment.
+ */
+export const getExtensionStatements = async (client: Client) => {
   const { rows } = await client.query<{
     comment: string
     name: string

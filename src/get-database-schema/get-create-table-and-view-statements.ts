@@ -1,6 +1,12 @@
 import { type Client } from "pg"
 
-export const getCreateTableAndViewCommands = async (client: Client) => {
+/**
+ * Returns `CREATE TABLE` / `CREATE VIEW` / `CREATE MATERIALIZED VIEW` statements for each table and view, including column definitions, and partitioning.
+ * Returns `COMMENT ON TABLE` statement for each table with a defined comment.
+ * Returns `COMMENT ON VIEW` or `COMMENT ON MATERIALIZED VIEW` statement for each view with a defined comment.
+ * Returns `COMMENT ON COLUMN` statement for each table/view column with a defined comment.
+ */
+export const getCreateTableAndViewStatements = async (client: Client) => {
   const { rows: tableColumnRows } = await client.query<{
     comment: string | null
     default_value: string | null
@@ -242,8 +248,8 @@ export const getCreateTableAndViewCommands = async (client: Client) => {
       [],
     )
     .map(({ columnComments, columns, comment, name, partition }) => ({
-      name,
-      commands: [
+      tableOrViewName: name,
+      statements: [
         [
           [`CREATE TABLE ${name} (`],
           [columns.map(column => `    ${column}`).join(",\n")],
@@ -258,8 +264,8 @@ export const getCreateTableAndViewCommands = async (client: Client) => {
         ({ comment, definition, is_materialized, name, schema_name }) => {
           const schemaAndViewName = `${schema_name}.${name}`
           return {
-            name: schemaAndViewName,
-            commands: [
+            tableOrViewName: schemaAndViewName,
+            statements: [
               [
                 `CREATE ${
                   is_materialized ? "MATERIALIZED " : ""

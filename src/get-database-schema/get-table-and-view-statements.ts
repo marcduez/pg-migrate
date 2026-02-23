@@ -1,9 +1,18 @@
 import { type Client } from "pg"
 
-export const getTablesAndViews = async (
+/**
+ * Returns `CREATE TABLE` / `CREATE VIEW` statements, skipping any tables and views that are hoisted by `getFunctionStatements`.
+ * Returns `ALTER TABLE ONLY ... ATTACH PARTITION` statements to attach partitions for each partitioned table.
+ * Returns `ALTER TABLE ONLY ... ADD CONSTRAINT` statements to add non-foreign key constraints for each table.
+ * Returns `COMMENT ON CONSTRAINT` statement for each constraint with a defined comment.
+ */
+export const getTableAndViewStatements = async (
   client: Client,
-  createTableAndViewCommands: { name: string; commands: string[] }[],
-  hoistedTablesAndViews: string[],
+  createTableAndViewStatements: {
+    tableOrViewName: string
+    statements: string[]
+  }[],
+  hoistedTablesAndViewNames: string[],
 ) => {
   const { rows: nonForeignKeyConstraintRows } = await client.query<{
     comment: string | null
@@ -79,9 +88,12 @@ export const getTablesAndViews = async (
     )
   }
 
-  return createTableAndViewCommands
-    .filter(({ name }) => !hoistedTablesAndViews.includes(name))
-    .flatMap(({ commands }) => commands)
+  return createTableAndViewStatements
+    .filter(
+      ({ tableOrViewName }) =>
+        !hoistedTablesAndViewNames.includes(tableOrViewName),
+    )
+    .flatMap(({ statements }) => statements)
     .concat(
       nonForeignKeyConstraintRows.flatMap(
         ({ comment, definition, name, schema_name, table_name }) => [

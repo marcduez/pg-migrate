@@ -1,6 +1,11 @@
 import type { Client } from "pg"
 
-export const getTriggers = async (client: Client) => {
+/**
+ * Returns a `CREATE TRIGGER` statement for each trigger.
+ * Returns an `ALTER TABLE ... ENABLE/DISABLE TRIGGER` statement for each trigger that is disabled or replica/always enabled.
+ * Returns a `COMMENT ON TRIGGER` statement for each trigger with a defined comment.
+ */
+export const getTriggerStatements = async (client: Client) => {
   const { rows } = await client.query<{
     comment: string | null
     definition: string
