@@ -29,7 +29,7 @@ export const getFunctionStatements = async (
     , p.proowner::regrole as owner_name
     , pg_catalog.pg_get_function_identity_arguments(p.oid) as args
     , pg_catalog.pg_get_functiondef(p.oid) as definition
-	  , quote_literal(d.description) as comment
+    , quote_literal(d.description) as comment
   from pg_catalog.pg_proc p
   inner join pg_catalog.pg_namespace ns on
     ns.oid = p.pronamespace
@@ -44,6 +44,15 @@ export const getFunctionStatements = async (
     pg_catalog.pg_function_is_visible(p.oid)
     and p.probin is null
     and p.prokind != 'a'
+    -- Where function was not created by an extension.
+    and not exists (
+      select
+        *
+      from pg_catalog.pg_depend dep
+      where
+        dep.objid = p.oid
+        and dep.deptype = 'e'
+    )
   order by ns.nspname, p.proname`)
 
   const { rows: aggregateRows } = await client.query<{
@@ -77,6 +86,15 @@ export const getFunctionStatements = async (
   	and d.classoid = 'pg_catalog.pg_proc'::regclass
   where
     pg_catalog.pg_function_is_visible(p.oid)
+    -- Where aggregate was not created by an extension.
+    and not exists (
+      select
+        *
+      from pg_catalog.pg_depend dep
+      where
+        dep.objid = a.aggfnoid
+        and dep.deptype = 'e'
+    )
   order by n.nspname, p.proname`)
 
   const { rows: requiredTypeRows } = await client.query<{

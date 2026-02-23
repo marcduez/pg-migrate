@@ -8,6 +8,8 @@ import { type Client } from "pg"
  */
 export const getCreateTableAndViewStatements = async (client: Client) => {
   const { rows: tableColumnRows } = await client.query<{
+    collation_name: string | null
+    collation_schema_name: string | null
     comment: string | null
     default_value: string | null
     is_not_null: boolean
@@ -18,6 +20,7 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
     schema_name: string
     table_comment: string | null
     table_name: string
+    table_persistence: "p" | "t" | "u"
     type: string
   }>(`
   select
@@ -25,7 +28,10 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
     , table_cl.relname::regclass as table_name
     , quote_ident(att.attname) as name
     , table_cl.relowner::regrole as owner_name
+    , table_cl.relpersistence as table_persistence
     , att.attnotnull as is_not_null
+    , coll.collnamespace::regnamespace as collation_schema_name
+    , coll.oid::regcollation as collation_name
     , pg_catalog.format_type(att.atttypid, att.atttypmod) as type
     , pg_catalog.pg_get_expr(ad.adbin, ad.adrelid) as default_value
     , part.partstrat as partition_strategy
@@ -50,6 +56,9 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
   inner join pg_catalog.pg_namespace ns on
     ns.oid = table_cl.relnamespace
     and ns.nspname not in ('pg_catalog', 'information_schema')
+  left join pg_catalog.pg_collation coll on
+    coll.oid = att.attcollation
+    and coll.oid != 'default'::regcollation
   left join pg_catalog.pg_partitioned_table part on
     part.partrelid = table_cl.oid
   left join pg_catalog.pg_attrdef ad on
@@ -181,11 +190,14 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
         comment: string | null
         name: string
         partition: string | null
+        persistence: "p" | "t" | "u"
       }[]
     >(
       (
         arr,
         {
+          collation_name,
+          collation_schema_name,
           comment,
           default_value,
           is_not_null,
@@ -195,13 +207,17 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
           schema_name,
           table_comment,
           table_name,
+          table_persistence,
           type,
         },
       ) => {
         const schemaAndTableName = `${schema_name}.${table_name}`
         const notNullClause = is_not_null ? " NOT NULL" : ""
         const defaultClause = default_value ? ` DEFAULT ${default_value}` : ""
-        const columnLine = `${name} ${type}${defaultClause}${notNullClause}`
+        const collationClause = collation_name
+          ? ` COLLATE ${collation_schema_name}.${collation_name}`
+          : ""
+        const columnLine = `${name} ${type}${defaultClause}${notNullClause}${collationClause}`
 
         const commentLine = table_comment
           ? `COMMENT ON TABLE ${schemaAndTableName} IS ${table_comment};`
@@ -235,6 +251,7 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
             columnComments: [],
             comment: commentLine,
             partition: partitionLine,
+            persistence: table_persistence,
           }
           arr.push(item)
         }
@@ -247,18 +264,28 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
       },
       [],
     )
-    .map(({ columnComments, columns, comment, name, partition }) => ({
-      tableOrViewName: name,
-      statements: [
-        [
-          [`CREATE TABLE ${name} (`],
-          [columns.map(column => `    ${column}`).join(",\n")],
-          ...(partition ? [")", partition] : [");"]),
-        ].join("\n"),
-        ...(comment ? [comment] : []),
-        ...columnComments,
-      ],
-    }))
+    .map(
+      ({ columnComments, columns, comment, name, partition, persistence }) => ({
+        tableOrViewName: name,
+        statements: [
+          [
+            [
+              `CREATE ${
+                persistence === "p"
+                  ? ""
+                  : persistence === "t"
+                  ? "TEMP "
+                  : "UNLOGGED "
+              }TABLE ${name} (`,
+            ],
+            [columns.map(column => `    ${column}`).join(",\n")],
+            ...(partition ? [")", partition] : [");"]),
+          ].join("\n"),
+          ...(comment ? [comment] : []),
+          ...columnComments,
+        ],
+      }),
+    )
     .concat(
       viewRows.flatMap(
         ({ comment, definition, is_materialized, name, schema_name }) => {
