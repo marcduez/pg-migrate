@@ -40,7 +40,7 @@ export const getTableAndViewStatements = async (
     pg_catalog.pg_table_is_visible(con.conrelid)
      -- Where constraint is not foreign key constraint, as those are written later
     and con.contype != 'f'
-  order by ns.nspname, table_cl.relname, con.conname`)
+  order by ns.nspname::text, table_cl.relname::text, con.conname::text`)
 
   const { rows: partitionedTableRows } = await client.query<{
     schema_name: string
@@ -56,7 +56,7 @@ export const getTableAndViewStatements = async (
   where
     -- Where kind is partition.
     cl.relkind = 'p'
-  order by ns.nspname, cl.relname`)
+  order by ns.nspname::text, cl.relname::text`)
 
   const attachPartitionCommands: string[] = []
   for (const { schema_name, name } of partitionedTableRows) {
@@ -77,7 +77,7 @@ export const getTableAndViewStatements = async (
     and c.relispartition
   inner join pg_catalog.pg_namespace n on
     n.oid = c.relnamespace
-  order by n.nspname, c.relname`,
+  order by n.nspname::text, c.relname::text`,
       [tableName],
     )
     attachPartitionCommands.push(

@@ -31,7 +31,7 @@ export const getForeignKeyConstraintStatements = async (client: Client) => {
     pg_catalog.pg_table_is_visible(con.conrelid)
     -- Where type is a foreign key constraint.
     and con.contype = 'f'
-  order by ns.nspname, table_cl.relname, con.conname`)
+  order by ns.nspname::text, table_cl.relname::text, con.conname::text`)
 
   return rows.flatMap(
     ({ comment, definition, name, schema_name, table_name }) => [

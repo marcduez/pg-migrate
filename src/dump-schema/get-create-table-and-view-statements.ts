@@ -78,7 +78,7 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
     and pg_type_is_visible(att.atttypid)  
     and att.attnum > 0
     and not att.attisdropped
-  order by ns.nspname, table_cl.relname, att.attnum`)
+  order by ns.nspname::text, table_cl.relname::text, att.attnum`)
 
   const { rows: viewRows } = await client.query<{
     comment: string | null
@@ -130,7 +130,7 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
     where
       v.schemaname not in ('pg_catalog', 'information_schema')
   ) t
-  order by schemaname, viewname`)
+  order by schemaname::text, viewname::text`)
 
   const { rows: viewColumnCommentRows } = await client.query<{
     schema_name: string
@@ -162,7 +162,7 @@ export const getCreateTableAndViewStatements = async (client: Client) => {
     and pg_type_is_visible(att.atttypid)  
     and att.attnum > 0
     and not att.attisdropped
-  order by ns.nspname, view_cl.relname, att.attnum`)
+  order by ns.nspname::text, view_cl.relname::text, att.attnum`)
 
   const viewColumnCommentsByViewName = new Map<string, string[]>(
     viewColumnCommentRows.reduce(

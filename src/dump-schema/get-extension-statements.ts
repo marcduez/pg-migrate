@@ -20,7 +20,7 @@ export const getExtensionStatements = async (client: Client) => {
     and d.classoid = 'pg_catalog.pg_extension'::regclass
   where
     e.extnamespace::regnamespace not in ('pg_catalog', 'information_schema')
-  order by e.extname, e.extnamespace`)
+  order by e.extname::text, e.extnamespace::text`)
 
   return rows.flatMap(({ comment, name, schema_name }) => [
     `CREATE EXTENSION IF NOT EXISTS ${name} WITH SCHEMA ${schema_name};`,

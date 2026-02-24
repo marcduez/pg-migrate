@@ -32,7 +32,7 @@ export const getTriggerStatements = async (client: Client) => {
     and d.classoid = 'pg_catalog.pg_trigger'::regclass
   where
     not t.tgisinternal
-  order by t.tgname, ns.nspname, table_cl.relname`)
+  order by t.tgname::text, ns.nspname::text, table_cl.relname::text`)
 
   return rows.flatMap(
     ({
