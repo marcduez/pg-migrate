@@ -10,7 +10,7 @@ import {
   migrateDatabase,
   migrateV2ToV3,
   overwriteDatabaseMd5,
-} from "."
+} from "./index.js"
 
 const getClient = ({
   host,

@@ -5,6 +5,7 @@ import path from "path"
 import type { QueryResult } from "pg"
 import { Client } from "pg"
 import type { MockInstance } from "vitest"
+import { dumpSchema } from "./dump-schema/dump-schema.js"
 import {
   createDatabaseMigration,
   databaseNeedsMigration,
@@ -12,8 +13,7 @@ import {
   migrateDatabase,
   migrateV2ToV3,
   overwriteDatabaseMd5,
-} from "."
-import { dumpSchema } from "./dump-schema/dump-schema"
+} from "./index.js"
 
 vi.mock("pg", () => {
   const Client = vi.fn(
