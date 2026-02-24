@@ -13,7 +13,7 @@ import {
   migrateV2ToV3,
   overwriteDatabaseMd5,
 } from "."
-import { dumpSchema } from "./dump-schema/dump-schema"
+import { dumpSchema } from "./dump-schema/dump-schema.js"
 
 vi.mock("pg", () => {
   const Client = vi.fn(

@@ -3,7 +3,7 @@ import fs from "fs"
 import path from "path"
 import { Client, ClientBase, escapeIdentifier, escapeLiteral } from "pg"
 import readline from "readline"
-import { dumpSchema } from "./dump-schema/dump-schema"
+import { dumpSchema } from "./dump-schema/dump-schema.js"
 
 const MIGRATION_DIR = path.join(process.cwd(), "migrations")
 const MIGRATION_LOCK_ID1 = 1477123592
