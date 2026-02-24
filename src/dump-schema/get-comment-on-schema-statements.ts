@@ -18,7 +18,7 @@ export const getCommentOnSchemaStatements = async (client: Client) => {
   where
     ns.nspname != 'information_schema'
     and ns.nspname !~ '^pg_'
-  order by ns.nspname`)
+  order by ns.nspname::text`)
 
   return rows.map(
     ({ comment, name }) => `COMMENT ON SCHEMA ${name} IS ${comment};`,

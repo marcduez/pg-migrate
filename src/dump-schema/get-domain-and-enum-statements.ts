@@ -79,8 +79,8 @@ export const getDomainAndEnumStatements = async (client: Client) => {
     left join pg_catalog.pg_description d on
       d.objoid = t.oid
       and d.classoid = 'pg_catalog.pg_type'::regclass
-  )
-  order by schema_name, name, enum_sort_order, domain_constraint_name`)
+  ) t
+  order by schema_name::text, name::text, enum_sort_order, domain_constraint_name::text`)
 
   return rows
     .reduce<

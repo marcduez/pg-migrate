@@ -34,7 +34,7 @@ export const getIndexStatements = async (client: Client) => {
     and d.classoid = 'pg_catalog.pg_class'::regclass
   where
     not i.indisprimary
-  order by cl.relname, ns.nspname, table_cl.relname`)
+  order by cl.relname::text, ns.nspname::text, table_cl.relname::text`)
 
   const { rows: indexPartitionRows } = await client.query<{
     parent_schema_name: string
@@ -53,7 +53,7 @@ export const getIndexStatements = async (client: Client) => {
       parent_con.oid = con.conparentid 
   where
     con.connamespace::regnamespace not in ('pg_catalog', 'information_schema')
-  order by parent_con.connamespace, parent_con.conname, con.connamespace, con.conname`)
+  order by parent_con.connamespace::text, parent_con.conname::text, con.connamespace::text, con.conname::text`)
 
   return [
     ...indexRows.flatMap(

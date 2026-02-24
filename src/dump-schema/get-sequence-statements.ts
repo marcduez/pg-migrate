@@ -48,7 +48,7 @@ export const getSequenceStatements = async (client: Client) => {
   where
     s.schemaname not in ('pg_catalog', 'information_schema')
   order by
-    s.schemaname, s.sequencename`)
+    s.schemaname::text, s.sequencename::text`)
 
   return rows.flatMap(
     ({

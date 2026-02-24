@@ -53,7 +53,7 @@ export const getFunctionStatements = async (
         dep.objid = p.oid
         and dep.deptype = 'e'
     )
-  order by ns.nspname, p.proname`)
+  order by ns.nspname::text, p.proname::text`)
 
   const { rows: aggregateRows } = await client.query<{
     args: string
@@ -95,7 +95,7 @@ export const getFunctionStatements = async (
         dep.objid = a.aggfnoid
         and dep.deptype = 'e'
     )
-  order by n.nspname, p.proname`)
+  order by n.nspname::text, p.proname::text`)
 
   const { rows: requiredTypeRows } = await client.query<{
     name: string
@@ -121,7 +121,7 @@ export const getFunctionStatements = async (
   where
     pg_catalog.pg_function_is_visible(p.oid)
     and p.probin is null
-  order by t.typnamespace, t.typname`)
+  order by t.typnamespace::text, t.typname::text`)
 
   const distinctRequiredSchemaAndTypeNames = [
     ...requiredTypeRows.reduce((set, row) => {
