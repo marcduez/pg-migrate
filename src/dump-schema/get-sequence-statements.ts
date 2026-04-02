@@ -67,10 +67,10 @@ export const getSequenceStatements = async (client: Client) => {
         `CREATE SEQUENCE ${schema_name}.${name}`,
         `    START WITH ${start_value}`,
         `    INCREMENT BY ${increment_by}`,
-        min_value === start_value
+        String(min_value) === String(start_value)
           ? "    NO MINVALUE"
           : `    MINVALUE ${min_value}`,
-        max_value === MAX_VALUES_BY_TYPE.get(data_type)
+        String(max_value) === MAX_VALUES_BY_TYPE.get(data_type)
           ? "    NO MAXVALUE"
           : `    MAXVALUE ${max_value}`,
         ...(cycle ? ["    CYCLE"] : []),
