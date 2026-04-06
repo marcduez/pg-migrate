@@ -29,10 +29,10 @@ export const getSequenceStatements = async (client: Client) => {
     , s.sequencename::regclass as name
     , s.sequenceowner::regrole as owner_name
     , s.data_type::regtype as data_type
-    , s.start_value
-    , s.min_value
-    , s.max_value
-    , s.increment_by
+    , s.start_value::text
+    , s.min_value::text
+    , s.max_value::text
+    , s.increment_by::text
     , s.cycle
     , s.cache_size
     , quote_literal(d.description) AS comment
