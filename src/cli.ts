@@ -72,7 +72,9 @@ yargs(hideBin(process.argv))
         message: "Migration name (optional):",
       })
 
-      const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
+      const resolvedMigrationDir = path.isAbsolute(migrationDir)
+        ? migrationDir
+        : path.resolve(process.cwd(), migrationDir)
       const filePath = await createDatabaseMigration(
         migrationName,
         resolvedMigrationDir,
@@ -168,7 +170,9 @@ yargs(hideBin(process.argv))
       password,
       connectionString,
     }) => {
-      const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
+      const resolvedMigrationDir = path.isAbsolute(migrationDir)
+        ? migrationDir
+        : path.resolve(process.cwd(), migrationDir)
       const client = getClient({
         host,
         port,
@@ -277,7 +281,9 @@ yargs(hideBin(process.argv))
         return
       }
 
-      const resolvedMigrationDir = path.join(process.cwd(), migrationDir)
+      const resolvedMigrationDir = path.isAbsolute(migrationDir)
+        ? migrationDir
+        : path.resolve(process.cwd(), migrationDir)
       const client = getClient({
         host,
         port,
@@ -371,9 +377,11 @@ yargs(hideBin(process.argv))
         validate: value => !!value,
       })
 
+      const resolvedMigrationDir = path.isAbsolute(migrationDir)
+        ? migrationDir
+        : path.resolve(process.cwd(), migrationDir)
       const migrationFilePath = path.join(
-        process.cwd(),
-        migrationDir,
+        resolvedMigrationDir,
         migrationFilename,
       )
 
