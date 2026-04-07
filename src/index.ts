@@ -375,7 +375,21 @@ export const migrateDatabase = async (
         if (!migrationSql) {
           throw new Error(`File ${filename} is empty`)
         }
-        await client.query(migrationSql)
+        if (inTransaction) {
+          await client.query(migrationSql)
+        } else {
+          // The pg-node client will automatically wrap a file containing multiple SQL commands in a transaction.
+          // If we're not running in a transaction, we need to split the file into its individual commands and run them separately.
+          const commands = migrationSql
+            // Regex that looks for an even number of single quotes after a semicolon.
+            .split(/;(?=(?:[^']*'[^']*')*[^']*$)/)
+            .map(c => c.trim())
+            .filter(Boolean)
+          for (const command of commands) {
+            await client.query(command)
+          }
+        }
+
         await insertMigration(client, migrationTableName, filename, digest)
 
         if (inTransaction) {
@@ -626,9 +640,12 @@ export const dumpSchemaToFile = async (
     return
   }
 
-  log.info(`Updating schema file ${schemaFile}...`)
-  const schemaDigestBefore = fs.existsSync(schemaFile)
-    ? await getDigestFromFile(schemaFile)
+  const resolvedSchemaFile = path.isAbsolute(schemaFile)
+    ? schemaFile
+    : path.resolve(process.cwd(), schemaFile)
+  log.info(`Updating schema file ${resolvedSchemaFile}...`)
+  const schemaDigestBefore = fs.existsSync(resolvedSchemaFile)
+    ? await getDigestFromFile(resolvedSchemaFile)
     : ""
   const schema = await dumpSchema(client)
   const schemaDigestAfter = getDigestFromString(schema)
@@ -638,7 +655,7 @@ export const dumpSchemaToFile = async (
     if (throwOnChangedSchema) {
       throw new Error("Database schema was unexpectedly changed by migrations!")
     }
-    await fs.promises.writeFile(schemaFile, schema, "utf8")
+    await fs.promises.writeFile(resolvedSchemaFile, schema, "utf8")
     log.info("Updated schema file")
   }
 }

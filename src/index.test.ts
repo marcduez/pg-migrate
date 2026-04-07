@@ -417,8 +417,8 @@ describe("migrateDatabase()", () => {
       digest: string
     }>((_, i) => ({
       filename: `2020010100${i.toString().padStart(4, "0")}.sql`,
-      content: `migration${i}`,
-      digest: getDigestFromString(`migration${i}`),
+      content: `migration${i}-1;migration${i}-2;`,
+      digest: getDigestFromString(`migration${i}-1;migration${i}-2;`),
     }))
 
     mockFs({
@@ -479,7 +479,10 @@ describe("migrateDatabase()", () => {
 
   it("applies migration without transaction", async () => {
     const schemaFilePath = path.join(process.cwd(), "schema.sql")
-    const migration = "-- no_transaction\nmigration1"
+    const migration = `-- no_transaction
+-- Semicolon inside string literal should not be treated as command separator.
+update my_table set column = 'value1;value2';
+migration2`
 
     mockFs({
       [schemaFilePath]: "old-schema",
@@ -502,7 +505,9 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
-      // Apply migration
+      // Apply migration command 1
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Apply migration command 2
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Insert migration row
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
@@ -511,7 +516,7 @@ describe("migrateDatabase()", () => {
 
     await migrateDatabase(client)
 
-    expect(mockQuery).toHaveBeenCalledTimes(7)
+    expect(mockQuery).toHaveBeenCalledTimes(8)
   })
 
   it("updates statement_timeout when value is provided", async () => {
@@ -599,9 +604,13 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
-      // Apply migration
+      // Begin transaction
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Run migration
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Insert migration row
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Commit transaction
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
@@ -634,9 +643,13 @@ describe("migrateDatabase()", () => {
       .mockResolvedValueOnce({ rows: [{ exists: true }] } as QueryResult)
       // Select existing digests
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
-      // Apply migration
+      // Begin transaction
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Run migration
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Insert migration row
+      .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
+      // Commit transaction
       .mockResolvedValueOnce({ rows: [] as unknown[] } as QueryResult)
       // Release lock
       .mockResolvedValueOnce({ rows: [{ released: true }] } as QueryResult)
