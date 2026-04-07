@@ -462,4 +462,14 @@ yargs(hideBin(process.argv))
 
   .demandCommand()
 
+  .fail((msg, err, yargs) => {
+    if (err) {
+      console.error(err.stack ?? err.message ?? String(err))
+    } else {
+      console.error(msg)
+    }
+    console.info(yargs.help())
+    process.exit(1)
+  })
+
   .parse()
