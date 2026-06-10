@@ -104,9 +104,29 @@ import { createDatabaseMigration } from "@marcduez/pg-migrate"
 Using the CLI:
 
 ```sh
-$ npm run pg-migrate create
+# Using NPM
 
+# This will prompt for a name for the migration.
+$ npm run pg-migrate create
+# Then follow prompts
+
+# This will create a migration named YYYYMMDDHHmmSS_my_named_migration.sql
+$ npm run pg-migrate create "my named migration"
+
+# This will create a migration named YYYYMMDDHHmmSS_my_named_migration.sql
+$ npm run pg-migrate create my-named-migration
+
+# Using Yarn
+
+# This will prompt for a name for the migration.
 $ yarn pg-migrate create
+# Then follow prompts
+
+# This will create a migration named YYYYMMDDHHmmSS_my_named_migration.sql
+$ yarn pg-migrate create "my named migration"
+
+# This will create a migration named YYYYMMDDHHmmSS_my_named_migration.sql
+$ yarn pg-migrate create my-named-migration
 ```
 
 ### Migrating the database
@@ -152,7 +172,7 @@ import { Client } from "pg"
   })
   await client.connect()
   try {
-    await overwriteDatabaseMd5(client, "20260122153125.sql")
+    await overwriteDatabaseMd5(client, "20260122153125_my_migration.sql")
   } finally {
     await client.end()
   }
@@ -162,11 +182,21 @@ import { Client } from "pg"
 Using the CLI:
 
 ```sh
+# Using NPM
+
 $ npm run pg-migrate overwrite-md5
 # Then follow prompts
 
+# This will use the argument instead of prompting.
+$ npm run pg-migrate overwrite-md5 "20260122153125_my_migration.sql"
+
+# Using Yarn
+
 $ yarn pg-migrate overwrite-md5
 # Then follow prompts
+
+# This will use the argument instead of prompting.
+$ yarn pg-migrate overwrite-md5 "20260122153125_my_migration.sql"
 ```
 
 ### Re-generating the schema file

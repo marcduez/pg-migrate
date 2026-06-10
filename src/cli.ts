@@ -56,7 +56,10 @@ yargs(hideBin(process.argv))
   .showHelpOnFail(false)
 
   // Create migration
-  .command<{ migrationName: string; migrationDir: string }>({
+  .command<{
+    migrationDir: string
+    migrationName: string
+  }>({
     command: "create [migration-name]",
     describe: "Create a database migration",
     builder: {
@@ -66,11 +69,13 @@ yargs(hideBin(process.argv))
         describe: "The migration directory to use",
       },
     },
-    handler: async ({ migrationDir }) => {
-      const migrationName = await input({
-        default: "",
-        message: "Migration name (optional):",
-      })
+    handler: async ({ migrationDir, migrationName: migrationNameFromArgs }) => {
+      const migrationName =
+        migrationNameFromArgs ??
+        (await input({
+          default: "",
+          message: "Migration name (optional):",
+        }))
 
       const resolvedMigrationDir = path.isAbsolute(migrationDir)
         ? migrationDir
@@ -85,17 +90,17 @@ yargs(hideBin(process.argv))
 
   // Migrate database
   .command<{
+    connectionString: string
+    database?: string
+    host?: string
     migrationDir: string
     migrationTable: string
+    password?: string
+    port?: number
     schemaFile: string
     throwOnChangedSchema: boolean
     timeoutSeconds?: number
-    host?: string
-    port?: number
-    database?: string
     username?: string
-    password?: string
-    connectionString: string
   }>({
     command: "migrate",
     describe: "Apply un-applied database migrations",
@@ -158,17 +163,17 @@ yargs(hideBin(process.argv))
       },
     },
     handler: async ({
+      connectionString,
+      database,
+      host,
       migrationDir,
       migrationTable,
+      password,
+      port,
       schemaFile,
       throwOnChangedSchema,
       timeoutSeconds,
-      host,
-      port,
-      database,
       username,
-      password,
-      connectionString,
     }) => {
       const resolvedMigrationDir = path.isAbsolute(migrationDir)
         ? migrationDir
@@ -199,15 +204,15 @@ yargs(hideBin(process.argv))
 
   // Migrate from v2 to v3
   .command<{
+    connectionString: string
+    database?: string
+    host?: string
     migrationDir: string
     migrationTable: string
-    schemaFile: string
-    host?: string
-    port?: number
-    database?: string
-    username?: string
     password?: string
-    connectionString: string
+    port?: number
+    schemaFile: string
+    username?: string
   }>({
     command: "migrate-v2-to-v3",
     describe: "Migrate a system using v2 of pg-migrate to v3 of pg-migrate",
@@ -260,15 +265,15 @@ yargs(hideBin(process.argv))
       },
     },
     handler: async ({
+      connectionString,
+      database,
+      host,
       migrationDir,
       migrationTable,
-      schemaFile,
-      host,
-      port,
-      database,
-      username,
       password,
-      connectionString,
+      port,
+      schemaFile,
+      username,
     }) => {
       const isFullyMigrated = await confirm({
         default: false,
@@ -308,16 +313,17 @@ yargs(hideBin(process.argv))
 
   // Overwrite MD5
   .command<{
-    migrationDir: string
-    migrationTable: string
-    host?: string
-    port?: number
-    database?: string
-    username?: string
-    password?: string
     connectionString: string
+    database?: string
+    host?: string
+    migrationDir: string
+    migrationFilename: string
+    migrationTable: string
+    password?: string
+    port?: number
+    username?: string
   }>({
-    command: "overwrite-md5",
+    command: "overwrite-md5 [migration-filename]",
     describe:
       "Overwrite the MD5 digest of a migration in a database with the MD5 digest from the migration file",
     builder: {
@@ -363,19 +369,22 @@ yargs(hideBin(process.argv))
       },
     },
     handler: async ({
-      migrationDir,
-      migrationTable,
-      host,
-      port,
-      database,
-      username,
-      password,
       connectionString,
+      database,
+      host,
+      migrationDir,
+      migrationFilename: migrationFilenameFromArgs,
+      migrationTable,
+      password,
+      port,
+      username,
     }) => {
-      const migrationFilename = await input({
-        message: "Migration file:",
-        validate: value => !!value,
-      })
+      const migrationFilename =
+        migrationFilenameFromArgs ??
+        (await input({
+          message: "Migration file:",
+          validate: value => !!value,
+        }))
 
       const resolvedMigrationDir = path.isAbsolute(migrationDir)
         ? migrationDir
