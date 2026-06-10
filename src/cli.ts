@@ -66,11 +66,13 @@ yargs(hideBin(process.argv))
         describe: "The migration directory to use",
       },
     },
-    handler: async ({ migrationDir }) => {
-      const migrationName = await input({
-        default: "",
-        message: "Migration name (optional):",
-      })
+    handler: async ({ migrationDir, migrationName: argMigrationName }) => {
+      const migrationName =
+        argMigrationName ??
+        (await input({
+          default: "",
+          message: "Migration name (optional):",
+        }))
 
       const resolvedMigrationDir = path.isAbsolute(migrationDir)
         ? migrationDir
@@ -202,6 +204,7 @@ yargs(hideBin(process.argv))
     migrationDir: string
     migrationTable: string
     schemaFile: string
+    yes: boolean
     host?: string
     port?: number
     database?: string
@@ -227,6 +230,12 @@ yargs(hideBin(process.argv))
         default: "schema.sql",
         describe:
           "File that the database schema will be written to after applying migrations (set to empty string to skip writing schema)",
+      },
+      yes: {
+        alias: "y",
+        boolean: true,
+        default: false,
+        describe: "Skip confirmation prompt",
       },
       host: {
         alias: "h",
@@ -263,6 +272,7 @@ yargs(hideBin(process.argv))
       migrationDir,
       migrationTable,
       schemaFile,
+      yes,
       host,
       port,
       database,
@@ -270,13 +280,15 @@ yargs(hideBin(process.argv))
       password,
       connectionString,
     }) => {
-      const isFullyMigrated = await confirm({
-        default: false,
-        message:
-          "WARNING: This script will drop and recreate the migrations table and rename your migration files. You should run this after you have migrated your database to latest. Proceed?",
-      })
+      const proceed =
+        yes ||
+        (await confirm({
+          default: false,
+          message:
+            "WARNING: This script will drop and recreate the migrations table and rename your migration files. You should run this after you have migrated your database to latest. Proceed?",
+        }))
 
-      if (!isFullyMigrated) {
+      if (!proceed) {
         console.log("Aborting")
         return
       }
@@ -308,6 +320,7 @@ yargs(hideBin(process.argv))
 
   // Overwrite MD5
   .command<{
+    migrationFile?: string
     migrationDir: string
     migrationTable: string
     host?: string
@@ -317,7 +330,7 @@ yargs(hideBin(process.argv))
     password?: string
     connectionString: string
   }>({
-    command: "overwrite-md5",
+    command: "overwrite-md5 [migration-file]",
     describe:
       "Overwrite the MD5 digest of a migration in a database with the MD5 digest from the migration file",
     builder: {
@@ -363,6 +376,7 @@ yargs(hideBin(process.argv))
       },
     },
     handler: async ({
+      migrationFile: argMigrationFile,
       migrationDir,
       migrationTable,
       host,
@@ -372,10 +386,12 @@ yargs(hideBin(process.argv))
       password,
       connectionString,
     }) => {
-      const migrationFilename = await input({
-        message: "Migration file:",
-        validate: value => !!value,
-      })
+      const migrationFilename =
+        argMigrationFile ??
+        (await input({
+          message: "Migration file:",
+          validate: value => !!value,
+        }))
 
       const resolvedMigrationDir = path.isAbsolute(migrationDir)
         ? migrationDir
