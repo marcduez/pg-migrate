@@ -450,6 +450,11 @@ yargs(hideBin(process.argv))
         describe:
           "Database connection string (or set PGURI or DATABASE_URL env variable)",
       },
+      "migration-table": {
+        alias: "t",
+        default: "migrations",
+        describe: "Database table that tracks previously applied migrations",
+      },
     },
     handler: async ({
       schemaFile,
@@ -459,6 +464,7 @@ yargs(hideBin(process.argv))
       username,
       password,
       connectionString,
+      migrationTable,
     }) => {
       const client = getClient({
         host,
@@ -470,7 +476,7 @@ yargs(hideBin(process.argv))
       })
       await client.connect()
       try {
-        await dumpSchemaToFile(client, schemaFile)
+        await dumpSchemaToFile(client, schemaFile, migrationTable)
       } finally {
         await client.end()
       }

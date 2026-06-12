@@ -58,8 +58,8 @@ export const getDomainAndEnumStatements = async (client: Client) => {
 
     -- Select enums
     select
-      ns.nspname 
-      , t.typname
+      ns.nspname as schema_name
+      , t.typname as name
       , 'enum' as row_type
       , e.enumlabel as enum_value
       , e.enumsortorder as enum_sort_order
@@ -80,7 +80,7 @@ export const getDomainAndEnumStatements = async (client: Client) => {
       d.objoid = t.oid
       and d.classoid = 'pg_catalog.pg_type'::regclass
   ) t
-  order by schema_name::text, name::text, enum_sort_order, domain_constraint_name::text`)
+  order by schema_name::text, name::text, enum_value, domain_constraint_name::text`)
 
   return rows
     .reduce<

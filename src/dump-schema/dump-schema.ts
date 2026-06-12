@@ -6,6 +6,7 @@ import { getExtensionStatements } from "./get-extension-statements.js"
 import { getForeignKeyConstraintStatements } from "./get-foreign-key-constraint-statements.js"
 import { getFunctionStatements } from "./get-function-statements.js"
 import { getIndexStatements } from "./get-index-statements.js"
+import { getInsertMigrationRowStatements } from "./get-insert-migration-row-statements.js"
 import { getSequenceStatements } from "./get-sequence-statements.js"
 import { getTableAndViewStatements } from "./get-table-and-view-statements.js"
 import { getTriggerStatements } from "./get-trigger-statements.js"
@@ -13,7 +14,10 @@ import { getTriggerStatements } from "./get-trigger-statements.js"
 /**
  * Dumps the schema of a PostgreSQL database as a string of SQL statements that can be used to recreate the schema.
  */
-export const dumpSchema = async (client: Client) => {
+export const dumpSchema = async (
+  client: Client,
+  migrationTableName: string,
+) => {
   const createTableAndViewStatements =
     await getCreateTableAndViewStatements(client)
   const hoistedTablesAndViewNames: string[] = []
@@ -40,5 +44,6 @@ export const dumpSchema = async (client: Client) => {
     ...(await getIndexStatements(client)),
     ...(await getTriggerStatements(client)),
     ...(await getForeignKeyConstraintStatements(client)),
+    ...(await getInsertMigrationRowStatements(client, migrationTableName)),
   ].join("\n\n\n")
 }

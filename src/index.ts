@@ -410,7 +410,13 @@ export const migrateDatabase = async (
     }
 
     // Write the new database schema to file
-    await dumpSchemaToFile(client, schemaFile, throwOnChangedSchema, log)
+    await dumpSchemaToFile(
+      client,
+      schemaFile,
+      migrationTableName,
+      throwOnChangedSchema,
+      log,
+    )
   } finally {
     try {
       await releaseLock(client)
@@ -532,7 +538,13 @@ export const migrateV2ToV3 = async (
       scriptLines.push(commitTransactionCommand)
 
       // Write the new database schema to file
-      await dumpSchemaToFile(client, schemaFile, undefined, log)
+      await dumpSchemaToFile(
+        client,
+        schemaFile,
+        migrationTableName,
+        undefined,
+        log,
+      )
 
       // Write script to migration migration table to file.
       fs.writeFileSync(
@@ -632,6 +644,7 @@ export const overwriteDatabaseMd5 = async (
 export const dumpSchemaToFile = async (
   client: Client,
   schemaFile = SCHEMA_FILE,
+  migrationTableName = MIGRATION_TABLE_NAME,
   throwOnChangedSchema = false,
   log = { info: (message: unknown) => console.log(message) },
 ) => {
@@ -647,7 +660,7 @@ export const dumpSchemaToFile = async (
   const schemaDigestBefore = fs.existsSync(resolvedSchemaFile)
     ? await getDigestFromFile(resolvedSchemaFile)
     : ""
-  const schema = await dumpSchema(client)
+  const schema = await dumpSchema(client, migrationTableName)
   const schemaDigestAfter = getDigestFromString(schema)
   if (schemaDigestBefore === schemaDigestAfter) {
     log.info("Not updating schema file - no changes detected")
