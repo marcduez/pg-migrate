@@ -473,7 +473,7 @@ describe("migrateDatabase()", () => {
     await migrateDatabase(client)
 
     expect(mockQuery).toHaveBeenCalledTimes(409)
-    expect(mockDumpSchema.mock.calls).toStrictEqual([[client]])
+    expect(mockDumpSchema.mock.calls).toStrictEqual([[client, "migrations"]])
     expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
   })
 
@@ -961,9 +961,11 @@ describe("dumpSchemaToFile()", () => {
 
     const client = new Client()
 
-    await dumpSchemaToFile(client, schemaFilePath)
+    await dumpSchemaToFile(client, schemaFilePath, "migration_table")
 
-    expect(mockDumpSchema.mock.calls).toStrictEqual([[client]])
+    expect(mockDumpSchema.mock.calls).toStrictEqual([
+      [client, "migration_table"],
+    ])
     expect(fs.readFileSync(schemaFilePath, "utf-8")).toBe("new-schema")
   })
 
@@ -979,7 +981,7 @@ describe("dumpSchemaToFile()", () => {
     const client = new Client()
 
     await expect(
-      dumpSchemaToFile(client, schemaFilePath, true),
+      dumpSchemaToFile(client, schemaFilePath, undefined, true),
     ).rejects.toThrow("Database schema was unexpectedly changed by migrations!")
   })
 
@@ -997,7 +999,7 @@ describe("dumpSchemaToFile()", () => {
     const client = new Client()
 
     await expect(
-      dumpSchemaToFile(client, schemaFilePath, false, {
+      dumpSchemaToFile(client, schemaFilePath, undefined, false, {
         info: mockInfo,
       }),
     ).resolves.not.toThrow()
@@ -1011,7 +1013,7 @@ describe("dumpSchemaToFile()", () => {
 
     const client = new Client()
 
-    await dumpSchemaToFile(client, "", undefined, {
+    await dumpSchemaToFile(client, "", undefined, undefined, {
       info: mockInfo,
     })
 
