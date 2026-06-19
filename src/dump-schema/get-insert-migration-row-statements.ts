@@ -16,6 +16,6 @@ export const getInsertMigrationRowStatements = async (
 
   return rows.map(
     ({ filename, md5 }) =>
-      `INSERT INTO public.${migrationTableName} (filename, md5) values (${filename}, ${md5});`,
+      `INSERT INTO public.${migrationTableName} (filename, md5) VALUES (${filename}, ${md5});`,
   )
 }
